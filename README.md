@@ -21,6 +21,14 @@ Terminal menampilkan alamat Wi-Fi, misalnya `http://192.168.1.10:3000`. Buka ala
 
 Build untuk laptop lain: `GOOS=windows GOARCH=amd64 go build -o tts.exe ./cmd/tts` (atau `GOOS=darwin GOARCH=arm64`).
 
+### Data contoh
+
+```sh
+go run ./cmd/seed            # isi data.sqlite (atau -db path/lain.sqlite)
+```
+
+Mengisi 4 kuis contoh dari `cmd/seed/samples/*.md` (3 terbit, "Sains Dasar" draf), 5 pemain (`sari`, `budi`, `dewi`, `rina`, `agus`, password `rahasia123`), papan peringkat solo "Kebun Binatang", dan satu riwayat live. Aman dijalankan berulang: data yang sudah ada dilewati. File contoh juga bisa dipakai untuk mencoba **Impor .md**.
+
 ## Alur live
 
 1. **Ruang tunggu**: pemain masuk dengan kode (tamu cukup nama panggilan, pemain yang login pakai username), atur avatar, pilih bel. Admin bisa mengubah poin/penalti/waktu untuk sesi ini.

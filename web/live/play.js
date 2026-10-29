@@ -52,9 +52,17 @@ async function boot() {
       await api(`/api/live/rooms/${code}`);
       nickname = me?.username || localStorage.getItem("tts_nickname") || "";
       avatar = window.TTSAvatar.normalize(storedAvatar() || window.TTSAvatar.random());
+      // Audio needs a user gesture; any tap or key (e.g. Space to buzz) unlocks it, not only this button.
       const tap = $("#tap");
       tap.classList.remove("hidden");
-      tap.addEventListener("click", () => { Bells.unlock(); tap.classList.add("hidden"); }, { once: true });
+      const unlock = () => {
+        Bells.unlock();
+        tap.classList.add("hidden");
+        document.removeEventListener("pointerdown", unlock, true);
+        document.removeEventListener("keydown", unlock, true);
+      };
+      document.addEventListener("pointerdown", unlock, true);
+      document.addEventListener("keydown", unlock, true);
       connect();
       return;
     } catch (err) {
