@@ -1,1 +1,24 @@
-<!-- dibuat oleh sub-agen frontend -->
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Main Live · TTS Kuis</title>
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/live/live.css">
+  <script src="/vendor/avatar.js"></script>
+  <script type="module" src="/live/play.js"></script>
+</head>
+<body class="live player">
+  <div id="banner" class="banner hidden" role="alert">Menyambung ulang…</div>
+  <header class="top">
+    <a class="logo" href="/" aria-label="TTS Kuis, beranda"><span>T</span><span>T</span><span>S</span></a>
+    <span class="title" id="title">Main Live</span>
+    <span class="spacer"></span>
+    <span class="chip sun hidden" id="scoreChip"></span>
+  </header>
+  <main id="app"><p class="muted">Memuat…</p></main>
+  <button type="button" class="btn sun tap hidden" id="tap">🔊 Ketuk untuk mengaktifkan suara</button>
+  <div id="toast" role="status"></div>
+</body>
+</html>
