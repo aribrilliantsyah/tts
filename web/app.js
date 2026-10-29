@@ -25,8 +25,8 @@ function renderNav(page) {
     return;
   }
   nav.innerHTML = `
-    <a href="#/"${on(page === "" || page === "play" || page === "leaderboard")}>Teka-teki</a>
-    <a href="/play.html">Gabung live</a>
+    <a href="#/"${on(page === "" || page === "play" || page === "leaderboard")}>Beranda</a>
+    ${isAdmin() ? "" : `<a href="/play.html">Gabung live</a>`}
     ${isAdmin() ? `<a href="#/admin"${on(page === "admin")}>Admin</a>` : ""}
     <a href="#/profile" class="me${page === "profile" ? " on" : ""}" title="Profil">${avatarImg(me.avatar, 32, "")}<span>${esc(me.username)}</span></a>
     <a href="#" id="logout">Keluar</a>`;
@@ -143,16 +143,37 @@ async function listView() {
     playing: `<span class="chip sun">Sedang dikerjakan</span>`,
     done: `<span class="chip mint">Selesai · ${formatDuration(q.duration_ms)}</span>`,
   })[q.status];
-  const action = { new: "Mulai", playing: "Lanjutkan", done: "Lihat jawaban" };
+  const action = { new: "Latihan sendiri", playing: "Lanjutkan latihan", done: "Lihat jawaban" };
+  const liveIntro = isAdmin()
+    ? `<section class="live-intro panel">
+        <div>
+          <h2>Main bareng pakai bel</h2>
+          <p>Pilih kuis lalu tekan <b>Mulai live</b>. Layar utama menampilkan kode room. Pemain gabung dari HP/laptop masing-masing, yang paling cepat menekan bel dapat giliran menjawab.</p>
+        </div>
+      </section>`
+    : `<section class="live-intro panel">
+        <div>
+          <h2>Ikut kuis live</h2>
+          <p>Masukkan kode room yang tampil di layar utama.</p>
+        </div>
+        <form class="row" id="joinLive">
+          <input class="field code" id="liveCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Kode 6 angka" aria-label="Kode room" required>
+          <button class="btn go" type="submit">Gabung</button>
+        </form>
+      </section>`;
   app.innerHTML = `
+    ${liveIntro}
     <div class="page-head">
-      <h1>Teka-teki silang</h1>
-      <p class="sub">Pilih buku teka-teki, isi semua kotak, lalu periksa jawabanmu. Waktu tercepat masuk papan peringkat.</p>
+      <h1>${isAdmin() ? "Pilih kuis" : "Latihan sendiri"}</h1>
+      <p class="sub">${isAdmin()
+        ? "Mulai live untuk main bareng, atau coba sendiri dulu lewat latihan."
+        : "Isi teka-teki sendiri tanpa bel. Waktu tercepat masuk papan peringkat."}</p>
     </div>
+    <p class="error" id="err" hidden></p>
     ${quizzes.length === 0
       ? `<div class="empty panel"><h2>Belum ada teka-teki</h2><p>${isAdmin()
           ? `Buat kuis di editor atau impor file .md, lalu centang “Terbitkan”.</p><div class="row"><a class="btn go" href="#/admin/new">Buat kuis</a><a class="btn sun" href="#/admin/import">Impor .md</a></div>`
-          : `Admin belum menerbitkan kuis. Sambil menunggu, kamu bisa <a href="/play.html">gabung kuis live</a>.</p>`}</div>`
+          : `Admin belum menerbitkan kuis.</p>`}</div>`
       : `<div class="booklets">${quizzes.map((q) => `
         <article class="booklet">
           <a class="booklet-cover" href="#/play/${q.id}" aria-label="${esc(action[q.status])}: ${esc(q.title)}">
@@ -164,11 +185,20 @@ async function listView() {
             ${q.description ? `<p>${esc(q.description)}</p>` : ""}
             <p class="muted meta">${q.wordCount} kata · ${q.width}×${q.height} · ${q.solvers} penyelesai</p>
             <div class="row">
-              <a class="btn small ${q.status === "done" ? "" : "go"}" href="#/play/${q.id}">${action[q.status]}</a>
+              ${isAdmin() ? `<button class="btn small go" type="button" data-live="${q.id}">Mulai live</button>` : ""}
+              <a class="btn small ${isAdmin() || q.status === "done" ? "" : "go"}" href="#/play/${q.id}">${action[q.status]}</a>
               <a class="btn small" href="#/leaderboard/${q.id}">Peringkat</a>
             </div>
           </div>
         </article>`).join("")}</div>`}`;
+  const err = document.getElementById("err");
+  app.querySelectorAll("[data-live]").forEach((b) => {
+    b.onclick = () => startLive(Number(b.dataset.live), b, err);
+  });
+  document.getElementById("joinLive")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    location.href = `/play.html#/join/${encodeURIComponent(document.getElementById("liveCode").value.trim())}`;
+  });
 }
 
 // ---------- Player: play ----------

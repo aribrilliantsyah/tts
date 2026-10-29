@@ -8,6 +8,9 @@ code { font: 600 .9em ui-monospace, monospace; background: var(--sky); padding: 
 .warn { background: var(--sun-soft); border: 2.5px solid var(--navy); border-radius: 10px; padding: .45rem .7rem; font-weight: 600; }
 .empty { max-width: 560px; }
 .empty .row { margin-top: .6rem; }
+.live-intro { display: flex; gap: 1.2rem; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--sun); margin-bottom: 2rem; }
+.live-intro p { margin-bottom: 0; max-width: 60ch; }
+.live-intro .code { width: 11rem; font: 400 1.4rem var(--display); letter-spacing: .12em; text-align: center; }
 .table-wrap { overflow-x: auto; }
 .who { display: inline-flex; align-items: center; gap: .55rem; font-weight: 600; }
 .who .avatar { border-radius: 9px; box-shadow: none; border-width: 2px; }
