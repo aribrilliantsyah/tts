@@ -80,7 +80,7 @@ All JSON. Errors: status ≥400 with `{"error":"<pesan Indonesia>"}`. Body must 
 `User = {id, username, role: "admin"|"player", avatar: object}`
 
 ### Solo mode (published quizzes only; 404 otherwise)
-| GET | `/api/quizzes` | user | → `{quizzes:[{id,title,description,width,height,wordCount,solvers,status:"new"|"playing"|"done",duration_ms|null}]}` |
+| GET | `/api/quizzes` | user | → `{quizzes:[{id,title,description,width,height,wordCount,solvers,status:"new"|"playing"|"done",duration_ms|null,cells:[[row,col]]}]}` — `cells` = open squares for the card preview, shape only (no letters) |
 | GET | `/api/quizzes/{id}` | user | starts attempt if none → `{puzzle: PublicPuzzle, attempt:{cells,checks,started_at,completed_at}, solution: {"r,c":"A"}|null}` (solution only when completed) |
 | PUT | `/api/quizzes/{id}/progress` | user | `{cells:{"r,c":"A"}}` → `{ok:true}` (ignored if completed; invalid keys/values dropped) |
 | POST | `/api/quizzes/{id}/check` | user | `{cells}` → `{completed, wrong:["r,c"], empty:int, completed_at|null, duration_ms|null}` |

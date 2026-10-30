@@ -120,18 +120,13 @@ function layoutBoard(words, width, height, cell = "1.7rem") {
   return `<div class="board-wrap"><div class="board preview" style="--cell:${cell};grid-template-columns:repeat(${width},var(--cell))" role="img" aria-label="Pratinjau grid ${width}×${height}">${html}</div></div>`;
 }
 
-/** Decorative mini grid for list cards (the list API has no cell data). Deterministic per quiz id. */
+/** Card preview of a quiz's real grid shape (open squares only, no letters). */
 function miniGrid(q) {
-  const w = Math.max(3, Math.min(q.width, 11));
-  const h = Math.max(3, Math.min(q.height, 8));
-  let seed = (q.id * 2654435761) >>> 0 || 1;
-  const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296;
+  const open = new Set((q.cells ?? []).map(([r, c]) => `${r},${c}`));
   let html = "";
-  for (let i = 0; i < w * h; i++) {
-    const x = rnd();
-    html += x < 0.42 ? `<i class="${x < 0.08 ? "s" : x < 0.14 ? "m" : ""}"></i>` : "<i class=\"x\"></i>";
-  }
-  return `<div class="mini" aria-hidden="true" style="grid-template-columns:repeat(${w},1fr)">${html}</div>`;
+  for (let r = 0; r < q.height; r++)
+    for (let c = 0; c < q.width; c++) html += open.has(`${r},${c}`) ? "<i></i>" : '<i class="x"></i>';
+  return `<div class="mini" aria-hidden="true" style="grid-template-columns:repeat(${q.width},1fr);max-width:min(100%, ${q.width * 18}px)">${html}</div>`;
 }
 
 // ---------- Player: list ----------

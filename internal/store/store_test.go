@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -160,6 +161,14 @@ func TestQuizAttemptsLive(t *testing.T) {
 	solo, err := s.SoloQuizzes(ctx, u.ID)
 	if err != nil || len(solo) != 1 || solo[0].Status != "done" || *solo[0].DurationMS != 4000 || solo[0].WordCount != 2 {
 		t.Fatalf("solo %+v %v", solo, err)
+	}
+	// KUDA across + KAKI down share (0,0): 7 distinct squares, reading order, no letters exposed.
+	wantCells := [][2]int{{0, 0}, {0, 1}, {0, 2}, {0, 3}, {1, 0}, {2, 0}, {3, 0}}
+	if !slices.Equal(solo[0].Cells, wantCells) {
+		t.Fatalf("cells %v, want %v", solo[0].Cells, wantCells)
+	}
+	if raw, _ := json.Marshal(solo[0]); strings.Contains(string(raw), "KUDA") || strings.Contains(string(raw), "KAKI") {
+		t.Fatalf("solo row leaks answers: %s", raw)
 	}
 
 	q, _ := s.Quiz(ctx, id)

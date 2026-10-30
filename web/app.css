@@ -40,11 +40,9 @@ code { font: 600 .9em ui-monospace, monospace; background: var(--sky); padding: 
 .booklet-body p { margin: 0; }
 .booklet-body .row:last-child { margin-top: auto; padding-top: .4rem; }
 .meta { font-size: .9rem; }
-.mini { display: grid; gap: 3px; max-width: 220px; margin: 0 auto; }
+.mini { display: grid; gap: 2px; margin: 0 auto; }
 .mini i { aspect-ratio: 1; border-radius: 3px; background: var(--paper); border: 1.5px solid var(--navy); }
 .mini i.x { background: transparent; border-color: transparent; }
-.mini i.s { background: var(--sun); }
-.mini i.m { background: var(--mint); }
 
 /* Play */
 .play { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 1.6rem; align-items: start; }

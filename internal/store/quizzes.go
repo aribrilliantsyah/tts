@@ -50,6 +50,8 @@ type SoloQuizRow struct {
 	Solvers     int    `json:"solvers"`
 	Status      string `json:"status"`
 	DurationMS  *int64 `json:"duration_ms"`
+	// Cells lists open squares as [row, col] for the card preview. Shape only, never letters.
+	Cells [][2]int `json:"cells"`
 }
 
 const quizCols = `id, title, description, width, height, words, published, points_correct, penalty_wrong, answer_seconds, created_by, created_at, updated_at`
@@ -192,7 +194,7 @@ func (s *Store) AdminQuizzes(ctx context.Context) ([]AdminQuizRow, error) {
 // SoloQuizzes lists published quizzes with the given user's attempt status.
 func (s *Store) SoloQuizzes(ctx context.Context, userID int64) ([]SoloQuizRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT q.id, q.title, q.description, q.width, q.height, json_array_length(q.words),
+		SELECT q.id, q.title, q.description, q.width, q.height, q.words,
 		       (SELECT count(*) FROM attempts a WHERE a.quiz_id = q.id AND a.completed_at IS NOT NULL),
 		       me.started_at, me.completed_at
 		FROM quizzes q LEFT JOIN attempts me ON me.quiz_id = q.id AND me.user_id = ?
@@ -204,10 +206,17 @@ func (s *Store) SoloQuizzes(ctx context.Context, userID int64) ([]SoloQuizRow, e
 	out := []SoloQuizRow{}
 	for rows.Next() {
 		var r SoloQuizRow
+		var words string
 		var started, completed sql.NullInt64
-		if err := rows.Scan(&r.ID, &r.Title, &r.Description, &r.Width, &r.Height, &r.WordCount, &r.Solvers, &started, &completed); err != nil {
+		if err := rows.Scan(&r.ID, &r.Title, &r.Description, &r.Width, &r.Height, &words, &r.Solvers, &started, &completed); err != nil {
 			return nil, fmt.Errorf("scan solo quiz: %w", err)
 		}
+		var placed []crossword.PlacedWord
+		if err := json.Unmarshal([]byte(words), &placed); err != nil {
+			return nil, fmt.Errorf("decode words of quiz %d: %w", r.ID, err)
+		}
+		r.WordCount = len(placed)
+		r.Cells = shape(placed)
 		switch {
 		case completed.Valid:
 			r.Status = "done"
@@ -220,4 +229,20 @@ func (s *Store) SoloQuizzes(ctx context.Context, userID int64) ([]SoloQuizRow, e
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// shape returns each distinct open square of the placed words as [row, col], in reading order.
+func shape(words []crossword.PlacedWord) [][2]int {
+	seen := map[crossword.Cell]bool{}
+	out := [][2]int{}
+	for _, w := range words {
+		for _, c := range w.Cells() {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, [2]int{c.Row, c.Col})
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b [2]int) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) })
+	return out
 }
