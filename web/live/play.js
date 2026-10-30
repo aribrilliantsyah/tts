@@ -450,6 +450,9 @@ function renderAnswer() {
     paint();
   });
   $("#tiles").addEventListener("click", () => input.focus());
+  input.addEventListener("focus", () => {
+    $("#tiles")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
   $("#ansForm").addEventListener("submit", (e) => {
     e.preventDefault();
     if (typed.length !== empties) { toast("Lengkapi semua kotak dulu."); return; }
@@ -461,6 +464,7 @@ function renderAnswer() {
   });
   paint();
   input.focus();
+  $("#tiles")?.scrollIntoView({ block: "center" });
 }
 
 // ----- finished -----

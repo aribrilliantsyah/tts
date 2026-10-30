@@ -28,8 +28,8 @@ function renderNav(page) {
     <a href="#/"${on(page === "" || page === "play" || page === "leaderboard")}>Beranda</a>
     ${isAdmin() ? "" : `<a href="/play.html">Gabung live</a>`}
     ${isAdmin() ? `<a href="#/admin"${on(page === "admin")}>Admin</a>` : ""}
-    <a href="#/profile" class="me${page === "profile" ? " on" : ""}" title="Profil">${avatarImg(me.avatar, 32, "")}<span>${esc(me.username)}</span></a>
-    <a href="#" id="logout">Keluar</a>`;
+    <a href="#/profile" class="me${page === "profile" ? " on" : ""}" title="Profil" aria-label="Profil ${esc(me.username)}">${avatarImg(me.avatar, 32, "")}<span class="me-name">${esc(me.username)}</span></a>
+    <a href="#" id="logout" class="nav-logout" title="Keluar" aria-label="Keluar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;margin-right:2px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg><span class="logout-text">Keluar</span></a>`;
   document.getElementById("logout").onclick = async (e) => {
     e.preventDefault();
     try {
@@ -208,7 +208,7 @@ async function playView(id) {
   let focus = clues[0].keys[0];
   let dir = clues[0].direction;
   let wrong = new Set();
-  const cellSize = `clamp(1.6rem, calc((min(100vw, 760px) - 4rem) / ${puzzle.width}), 3rem)`;
+  const cellSize = `clamp(1.35rem, calc((min(100vw, 760px) - 3.2rem) / ${puzzle.width}), 3rem)`;
 
   app.innerHTML = `
     <div class="page-head row">
@@ -226,7 +226,8 @@ async function playView(id) {
         </div>
         <div class="bubble" id="current" aria-live="polite"></div>
         <div class="board-wrap"><div class="board" id="board" style="--cell:${cellSize};grid-template-columns:repeat(${puzzle.width},var(--cell))"></div></div>
-        <p class="hint muted">Ketik untuk mengisi · panah untuk pindah · klik kotak yang sama atau Spasi untuk ganti arah · Tab ke petunjuk berikutnya</p>
+        <p class="hint muted hint-keyboard">Ketik untuk mengisi · panah untuk pindah · klik kotak yang sama atau Spasi untuk ganti arah · Tab ke petunjuk berikutnya</p>
+        <p class="hint muted hint-touch">Ketuk kotak untuk mengisi · ketuk lagi untuk ganti arah</p>
         <p class="error" id="err" role="alert" hidden></p>
         <div id="result"></div>
       </section>
@@ -247,13 +248,16 @@ async function playView(id) {
       const info = open.get(key);
       if (info) {
         tile.classList.add("open");
+        tile.dataset.key = key;
         tile.style.setProperty("--i", String(r + c));
         if (info.number) tile.insertAdjacentHTML("beforeend", `<span class="n">${info.number}</span>`);
         const input = document.createElement("input");
         input.maxLength = 1;
         input.autocomplete = "off";
         input.spellcheck = false;
+        input.setAttribute("inputmode", "text");
         input.setAttribute("autocapitalize", "characters");
+        input.setAttribute("enterkeyhint", "next");
         input.setAttribute("aria-label", `Baris ${r + 1} kolom ${c + 1}`);
         input.dataset.key = key;
         tile.appendChild(input);
@@ -351,13 +355,17 @@ async function playView(id) {
     focus = next.keys.find((k) => !cells[k]) ?? next.keys[0];
   }
 
-  board.addEventListener("mousedown", (e) => {
-    const key = e.target.dataset?.key;
+  board.addEventListener("pointerdown", (e) => {
+    const input = e.target.closest(".tile")?.querySelector("input");
+    const key = input?.dataset?.key;
     if (!key) return;
-    e.preventDefault();
     if (key === focus) dir = dir === "across" ? "down" : "across";
     focus = key;
     paint();
+    input.focus({ preventScroll: true });
+  });
+  board.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".tile")) e.preventDefault();
   });
   board.addEventListener("animationend", (e) => e.target.classList?.remove("pop"));
 
@@ -381,6 +389,7 @@ async function playView(id) {
     else if (k === "ArrowUp") { e.preventDefault(); dir = "down"; move(-1, 0); }
     else if (k === " ") { e.preventDefault(); dir = dir === "across" ? "down" : "across"; }
     else if (k === "Tab") { e.preventDefault(); jumpClue(e.shiftKey ? -1 : 1); }
+    else if (k === "Enter") { e.preventDefault(); step(1); }
     else return;
     paint();
   });
@@ -478,11 +487,11 @@ async function leaderboardView(id) {
         <thead><tr><th class="num">#</th><th>Pemain</th><th class="num">Waktu</th><th class="num">Kali periksa</th><th>Selesai</th></tr></thead>
         <tbody>${rest.map((e, i) => `
           <tr${e.username === me.username ? ' class="you"' : ""}>
-            <td class="num">${i + 4}</td>
-            <td><span class="who">${avatarImg(e.avatar, 32, "")}${esc(e.username)}</span></td>
-            <td class="num">${formatDuration(e.duration_ms)}</td>
-            <td class="num">${e.checks}</td>
-            <td>${formatDate(e.completed_at)}</td>
+            <td class="num" data-label="Peringkat">${i + 4}</td>
+            <td data-label="Pemain"><span class="who">${avatarImg(e.avatar, 32, "")}${esc(e.username)}</span></td>
+            <td class="num" data-label="Waktu">${formatDuration(e.duration_ms)}</td>
+            <td class="num" data-label="Kali periksa">${e.checks}</td>
+            <td data-label="Selesai">${formatDate(e.completed_at)}</td>
           </tr>`).join("")}</tbody>
       </table>` : ""}`}`;
 }
@@ -578,11 +587,11 @@ async function adminListView() {
       <thead><tr><th>Judul</th><th>Status</th><th class="num">Kata</th><th class="num">Pemain</th><th class="num">Selesai</th><th class="num">Game live</th><th>Diubah</th><th><span class="sr">Aksi</span></th></tr></thead>
       <tbody>${quizzes.map((q) => `
         <tr>
-          <td><a href="#/admin/edit/${q.id}"><b>${esc(q.title)}</b></a></td>
-          <td>${q.published ? `<span class="chip mint">Terbit</span>` : `<span class="chip">Draf</span>`}</td>
-          <td class="num">${q.wordCount}</td><td class="num">${q.players}</td><td class="num">${q.solvers}</td><td class="num">${q.liveGames}</td>
-          <td>${formatDate(q.updated_at)}</td>
-          <td><div class="row nowrap">
+          <td data-label="Judul"><a href="#/admin/edit/${q.id}"><b>${esc(q.title)}</b></a></td>
+          <td data-label="Status">${q.published ? `<span class="chip mint">Terbit</span>` : `<span class="chip">Draf</span>`}</td>
+          <td class="num" data-label="Kata">${q.wordCount}</td><td class="num" data-label="Pemain">${q.players}</td><td class="num" data-label="Selesai">${q.solvers}</td><td class="num" data-label="Game live">${q.liveGames}</td>
+          <td data-label="Diubah">${formatDate(q.updated_at)}</td>
+          <td data-label="Aksi"><div class="row nowrap">
             <button class="btn small go" type="button" data-live="${q.id}">Mulai live</button>
             <a class="btn small" href="#/admin/edit/${q.id}">Ubah</a>
             <a class="btn small" href="#/admin/results/${q.id}">Hasil</a>
@@ -1062,12 +1071,12 @@ async function resultsView(id) {
       <thead><tr><th>Pemain</th><th>Status</th><th class="num">Terisi</th><th class="num">Waktu</th><th class="num">Kali periksa</th><th>Mulai</th></tr></thead>
       <tbody>${results.map((r) => `
         <tr>
-          <td>${esc(r.username)}</td>
-          <td>${r.completed_at ? `<span class="chip mint">Selesai</span>` : `<span class="chip sun">Belum selesai</span>`}</td>
-          <td class="num">${r.completed_at ? totalCells : r.filled}/${totalCells}</td>
-          <td class="num">${formatDuration(r.duration_ms)}</td>
-          <td class="num">${r.checks}</td>
-          <td>${formatDate(r.started_at)}</td>
+          <td data-label="Pemain">${esc(r.username)}</td>
+          <td data-label="Status">${r.completed_at ? `<span class="chip mint">Selesai</span>` : `<span class="chip sun">Belum selesai</span>`}</td>
+          <td class="num" data-label="Terisi">${r.completed_at ? totalCells : r.filled}/${totalCells}</td>
+          <td class="num" data-label="Waktu">${formatDuration(r.duration_ms)}</td>
+          <td class="num" data-label="Kali periksa">${r.checks}</td>
+          <td data-label="Mulai">${formatDate(r.started_at)}</td>
         </tr>`).join("")}</tbody>
     </table></div>`}`;
 }
@@ -1084,16 +1093,16 @@ async function usersView() {
       <thead><tr><th>Pengguna</th><th>Role</th><th class="num">Kuis selesai</th><th>Terdaftar</th><th><span class="sr">Aksi</span></th></tr></thead>
       <tbody>${users.map((u) => `
         <tr>
-          <td><span class="who">${avatarImg(u.avatar, 32, "")}${esc(u.username)}</span></td>
-          <td>
+          <td data-label="Pengguna"><span class="who">${avatarImg(u.avatar, 32, "")}<b>${esc(u.username)}</b></span></td>
+          <td data-label="Role">
             <select class="field compact" data-role="${u.id}" ${u.id === me.id ? "disabled" : ""} aria-label="Role ${esc(u.username)}">
               <option value="player" ${u.role === "player" ? "selected" : ""}>Pemain</option>
               <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
             </select>
           </td>
-          <td class="num">${u.solved}</td>
-          <td>${formatDate(u.created_at)}</td>
-          <td>${u.id === me.id ? `<span class="muted">Anda</span>` : `<button class="btn small danger" type="button" data-del="${u.id}" data-name="${esc(u.username)}">Hapus</button>`}</td>
+          <td class="num" data-label="Kuis selesai">${u.solved}</td>
+          <td data-label="Terdaftar">${formatDate(u.created_at)}</td>
+          <td data-label="Aksi">${u.id === me.id ? `<span class="muted">Anda</span>` : `<button class="btn small danger" type="button" data-del="${u.id}" data-name="${esc(u.username)}">Hapus</button>`}</td>
         </tr>`).join("")}</tbody>
     </table></div>`;
   const err = document.getElementById("err");

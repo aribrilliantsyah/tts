@@ -108,12 +108,12 @@
 .clue-card { text-align: center; }
 .clue-text { font: 400 clamp(1.3rem, 5vw, 2rem)/1.2 var(--display); margin: .5rem 0 0; }
 .buzz-area { display: grid; justify-items: center; gap: .6rem; padding: 1rem 0; text-align: center; }
-.bel { width: min(72vw, 300px); aspect-ratio: 1; border-radius: 50%; border: 4px solid var(--navy); background: var(--tomato); color: #fff; font: 400 clamp(2.6rem, 12vw, 4rem)/1 var(--display); box-shadow: 0 12px 0 var(--navy); cursor: pointer; transition: transform .06s, box-shadow .06s; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.bel { width: min(70vw, 300px); aspect-ratio: 1; border-radius: 50%; border: 4px solid var(--navy); background: var(--tomato); color: #fff; font: 400 clamp(2.6rem, 12vw, 4rem)/1 var(--display); box-shadow: 0 12px 0 var(--navy); cursor: pointer; transition: transform .06s, box-shadow .06s; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .bel:active:not(:disabled), .bel.pressed { transform: translateY(9px); box-shadow: 0 3px 0 var(--navy); }
 .bel.off { background: #B8C0D6; color: var(--navy); font: 800 clamp(1rem, 4.5vw, 1.3rem)/1.3 var(--body); padding: 1.5rem; cursor: default; }
 .bel.off .cd { display: block; margin: .6rem auto 0; width: max-content; font-size: 2rem; }
 .answer { display: grid; justify-items: center; gap: 1rem; }
-.ans-tiles { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; --cell: min(3rem, calc((100vw - 4rem) / var(--len, 8))); }
+.ans-tiles { position: relative; display: flex; flex-wrap: nowrap; justify-content: center; gap: 6px; --cell: min(3rem, calc((100vw - 3rem) / var(--len, 8))); }
 .ans-tiles .tile { cursor: text; }
 .tile.lock { background: var(--sky); color: var(--muted); border-style: dashed; }
 .tile.typed { background: var(--sun-soft); }
@@ -136,6 +136,22 @@
   .lobby, .stage { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
+  .player main { padding: .8rem .6rem 2.5rem; }
+  .player .panel { padding: .6rem .8rem .7rem; }
+  .player .stack { gap: .5rem; }
+  .player .clue-card .eyebrow { margin-bottom: 0; font-size: .75rem; }
+  .player .clue-text { margin-top: .15rem; font-size: 1.15rem; line-height: 1.15; }
+  .player .answer { gap: .5rem; }
+  .player .answer h2 { font-size: 1.05rem; margin-bottom: .1rem; }
+  .player .ring { width: 50px; height: 50px; }
+  .player .ring text { font-size: 20px; }
+  .player .ring circle { stroke-width: 5; }
+  .player .btn.big { padding: .5rem 1.2rem; font-size: 1.05rem; min-height: 44px; }
+  .ans-tiles {
+    flex-wrap: nowrap;
+    gap: 3px;
+    --cell: min(2.5rem, calc((100vw - 3.2rem - (var(--len, 8) - 1) * 3px) / var(--len, 8)));
+  }
   .set-grid { grid-template-columns: 1fr; }
   .podium { gap: .4rem; }
   .pod .block { font-size: 1.8rem; }
