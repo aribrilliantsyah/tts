@@ -744,3 +744,104 @@ func TestHostRequiresAdmin(t *testing.T) {
 		t.Fatal("player could start")
 	}
 }
+
+// reacts returns the (player_id, kind) pairs of every react frame queued for c.
+func (e *env) reacts(c *Client) [][2]string {
+	var out [][2]string
+	for _, f := range e.drain(c) {
+		if f.typ() == "react" {
+			var m reactMsg
+			json.Unmarshal(mustJSON(f), &m)
+			out = append(out, [2]string{m.PlayerID, m.Kind})
+		}
+	}
+	return out
+}
+
+func TestReactBroadcastsToEveryone(t *testing.T) {
+	e := newEnv(t)
+	a := e.join("ani", nil, "")
+	b := e.join("budi", nil, "")
+	e.drain(e.host)
+	e.drain(a.c)
+	e.drain(b.c)
+	e.room.Message(a.c, Msg{Type: "react", Kind: "tawa"})
+	want := [][2]string{{a.you.PlayerID, "tawa"}}
+	for name, c := range map[string]*Client{"host": e.host, "sender": a.c, "other player": b.c} {
+		if got := e.reacts(c); !slices.Equal(got, want) {
+			t.Errorf("%s got %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestReactRejectedAfterStart(t *testing.T) {
+	e := newEnv(t)
+	ps := e.start("ani")
+	e.drain(e.host)
+	e.clock.Advance(time.Second)
+	e.room.Message(ps[0].c, Msg{Type: "react", Kind: "wave"})
+	if got := e.reacts(e.host); len(got) != 0 {
+		t.Fatalf("react relayed during play: %v", got)
+	}
+}
+
+func TestReactUnknownKind(t *testing.T) {
+	e := newEnv(t)
+	a := e.join("ani", nil, "")
+	e.drain(e.host)
+	for _, k := range []string{"", "BELL", "mati", "wave "} {
+		e.room.Message(a.c, Msg{Type: "react", Kind: k})
+		e.clock.Advance(time.Second)
+	}
+	if got := e.reacts(e.host); len(got) != 0 {
+		t.Fatalf("unknown kinds relayed: %v", got)
+	}
+}
+
+func TestReactRateLimit(t *testing.T) {
+	e := newEnv(t)
+	a := e.join("ani", nil, "")
+	b := e.join("budi", nil, "")
+	e.drain(e.host)
+	send := func(p joined, kind string) { e.room.Message(p.c, Msg{Type: "react", Kind: kind}); e.sync() } // sync: the clock must not move before the room has read it
+
+	send(a, "api")
+	e.clock.Advance(ReactGap - time.Millisecond)
+	send(a, "api")   // too soon: dropped
+	send(b, "pesta") // limit is per player
+	e.clock.Advance(time.Millisecond)
+	send(a, "api") // exactly the gap: accepted
+	got := e.reacts(e.host)
+	want := [][2]string{{a.you.PlayerID, "api"}, {b.you.PlayerID, "pesta"}, {a.you.PlayerID, "api"}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// Bell tests: 1.5 s apart, independent of how often other reactions go out.
+	e.clock.Advance(time.Second)
+	send(a, "bell")
+	e.clock.Advance(ReactGap)
+	send(a, "bell") // 600 ms after the last bell: dropped
+	send(a, "wave") // other kinds only obey the general gap
+	e.clock.Advance(BellGap - ReactGap)
+	send(a, "bell") // 1.5 s after the first bell: accepted
+	got = e.reacts(e.host)
+	want = [][2]string{{a.you.PlayerID, "bell"}, {a.you.PlayerID, "wave"}, {a.you.PlayerID, "bell"}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("bells: got %v, want %v", got, want)
+	}
+}
+
+func TestReactHostCannotSend(t *testing.T) {
+	e := newEnv(t)
+	a := e.join("ani", nil, "")
+	e.drain(e.host)
+	e.drain(a.c)
+	e.host_(Msg{Type: "react", Kind: "wave"})
+	if errs := e.errors(e.host); len(errs) != 1 {
+		t.Fatalf("errors %v", errs)
+	}
+	if got := e.reacts(a.c); len(got) != 0 {
+		t.Fatalf("host react relayed: %v", got)
+	}
+}

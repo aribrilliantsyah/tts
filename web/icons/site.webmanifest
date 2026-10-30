@@ -1,0 +1,12 @@
+{
+  "name": "TTS Kuis",
+  "short_name": "TTS Kuis",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "theme_color": "#DDF0FF",
+  "background_color": "#DDF0FF",
+  "display": "standalone",
+  "start_url": "/"
+}

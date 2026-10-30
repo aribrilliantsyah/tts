@@ -81,7 +81,8 @@ type player struct {
 	score               int
 	correct, wrong      int
 	correctMS           int64
-	conn                *Client // nil while disconnected
+	lastReact, lastBell time.Time // accepted lobby reactions; zero = never
+	conn                *Client   // nil while disconnected
 }
 
 type clue struct {
@@ -556,7 +557,7 @@ func (r *Room) hostMsg(m Msg) string {
 		}
 		r.finish()
 		return ""
-	case "set_bell", "set_avatar", "buzz", "answer":
+	case "set_bell", "set_avatar", "buzz", "answer", "react":
 		return "Hanya untuk pemain"
 	default:
 		return "Pesan tidak dikenal"
@@ -590,6 +591,23 @@ func (r *Room) playerMsg(p *player, m Msg) string {
 			return "Avatar tidak valid"
 		}
 		p.avatar = v
+	case "react":
+		if r.phase != PhaseLobby {
+			return "" // a tap racing the start is dropped, not an error toast
+		}
+		if !slices.Contains(Reactions, m.Kind) {
+			return "Reaksi tidak dikenal"
+		}
+		now := r.clock.Now()
+		if now.Sub(p.lastReact) < ReactGap || (m.Kind == "bell" && now.Sub(p.lastBell) < BellGap) {
+			return "" // dropped silently
+		}
+		p.lastReact = now
+		if m.Kind == "bell" {
+			p.lastBell = now
+		}
+		r.broadcast(reactMsg{Type: "react", PlayerID: p.id, Kind: m.Kind})
+		return "" // a relay only: no state change, nothing persisted
 	case "buzz":
 		a := r.active
 		if r.phase != PhasePlaying || a == nil || a.answering != nil || p.conn == nil || a.isLocked(p.id) {

@@ -1,0 +1,11 @@
+<svg fill="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t"><title>TTS Kuis</title>
+  <title id="t">TTS Kuis</title>
+  <!-- One-colour cut of the lifted tile: the face is negative space. Ring = outer(r44) minus face(r28);
+       slab = only the part of the r40 slab that shows below the ring (sides meet the ring arc at y=197.3). -->
+  <g transform="rotate(-6 128 124)" fill="#ffffff">
+    <path fill-rule="evenodd" d="M76 24 H180 A44 44 0 0 1 224 68 V172 A44 44 0 0 1 180 216 H76 A44 44 0 0 1 32 172 V68 A44 44 0 0 1 76 24 Z
+                                  M76 40 H180 A28 28 0 0 1 208 68 V172 A28 28 0 0 1 180 200 H76 A28 28 0 0 1 48 172 V68 A28 28 0 0 1 76 40 Z"/>
+    <path d="M40 197.3 V200 A40 40 0 0 0 80 240 H176 A40 40 0 0 0 216 200 V197.3 A44 44 0 0 1 180 216 H76 A44 44 0 0 1 40 197.3 Z"/>
+    <path d="M80 72 H176 V104 H144 V176 H112 V104 H80 Z"/>
+  </g>
+</svg>

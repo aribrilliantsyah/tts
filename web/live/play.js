@@ -18,6 +18,12 @@ let heardJoin = false; // own ev-join plays once per page load, not on every rec
 let view = null; // key of the rendered view
 let buzzedFor = null; // clue id we already pressed BEL for (until the state moves on)
 let typed = ""; // letters typed into the empty answer tiles
+const REACTS = [["wave", "👋", "Lambai"], ["tawa", "😂", "Tawa"], ["api", "🔥", "Api"], ["pesta", "🎉", "Pesta"], ["degdegan", "😬", "Deg-degan"]];
+const REACT_EMOJI = Object.fromEntries(REACTS.map(([k, e]) => [k, e]));
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let lastReactAt = 0; // client-side mirror of the server's rate limit (600 ms any react, 1500 ms bell test)
+let lastBellAt = 0;
+let heroAv = null; // JSON of the avatar currently drawn in the lobby hero
 
 // Audio needs a user gesture: the first tap or key anywhere (typing the nickname, Space to buzz) unlocks it and starts decoding.
 Sound.preload([...Sound.BELLS.map((b) => b.id), "ev-join", "ev-start", "ev-clue", "ev-correct", "ev-wrong", "ev-applause", "ev-yay"]);
@@ -196,6 +202,9 @@ function onMessage(msg) {
     case "buzz":
       if (msg.player_id === myId) Sound.play(msg.bell); // authoritative cue for our own bell; the host plays everyone's
       break;
+    case "react":
+      onReact(msg);
+      break;
     case "result":
       Sound.play(msg.correct ? "ev-correct" : "ev-wrong");
       if (msg.player_id === myId) showDelta(msg);
@@ -223,7 +232,7 @@ function onMessage(msg) {
 function cues(prev, next) {
   if (!prev) return;
   if (prev.phase !== next.phase) {
-    if (next.phase === "playing") Sound.play("ev-start");
+    if (next.phase === "playing") { Sound.play("ev-start"); startCountdown(); }
     else if (next.phase === "finished") {
       Sound.play("ev-applause");
       const rank = next.podium?.find((e) => e.player_id === myId)?.rank;
@@ -329,17 +338,84 @@ function render() {
 
 // ----- lobby -----
 
+/** Returns true when the react was sent (not throttled). */
+function sendReact(kind) {
+  const now = performance.now();
+  if (now - lastReactAt < 600 || (kind === "bell" && now - lastBellAt < 1500)) return false;
+  lastReactAt = now;
+  if (kind === "bell") lastBellAt = now;
+  sock.send({ type: "react", kind });
+  return true;
+}
+
+function hop(el) {
+  if (!el) return;
+  el.classList.remove("hop");
+  void el.offsetWidth;
+  el.classList.add("hop");
+  setTimeout(() => el.classList.remove("hop"), 520);
+}
+
+/** Own reactions come back from the server (so a throttled tap shows nothing); others' reactions hop their row. */
+function onReact(msg) {
+  if (!st || st.phase !== "lobby" || !REACT_EMOJI[msg.kind] && msg.kind !== "bell") return;
+  const emoji = msg.kind === "bell" ? "🔔" : REACT_EMOJI[msg.kind];
+  if (msg.player_id === myId) {
+    const slot = $("#heroBubble");
+    if (!slot) return;
+    hop($("#poke"));
+    clearTimeout(slot._t);
+    slot.innerHTML = `<span class="bubble">${emoji}</span>`;
+    slot._t = setTimeout(() => { slot.innerHTML = ""; }, 1800);
+    return;
+  }
+  const row = $(`.others li[data-pid="${CSS.escape(msg.player_id)}"]`);
+  if (!row) return;
+  hop(row.querySelector(".avatar"));
+  const rx = row.querySelector(".rx");
+  clearTimeout(rx._t);
+  rx.textContent = emoji;
+  rx._t = setTimeout(() => { rx.textContent = ""; }, 1800);
+}
+
+let countdownTimer = null;
+/** 3-2-1 over the whole screen when the game starts. Visual only (≤ 2.3 s); the overlay ignores pointer events and removes itself. */
+function startCountdown() {
+  clearTimeout(countdownTimer);
+  document.getElementById("count321")?.remove();
+  const el = document.createElement("div");
+  el.id = "count321";
+  el.className = "count321";
+  el.setAttribute("aria-hidden", "true");
+  document.body.append(el);
+  const steps = reduceMotion ? [["Mulai!", 800]] : [["3", 600], ["2", 600], ["1", 600], ["Mulai!", 500]];
+  let i = 0;
+  const next = () => {
+    if (i >= steps.length) { el.remove(); return; }
+    const [text, ms] = steps[i++];
+    el.innerHTML = `<span class="count-tile" data-n="${reduceMotion ? 4 : i}">${text}</span>`;
+    countdownTimer = setTimeout(next, ms);
+  };
+  next();
+}
+
 function skeletonLobby() {
+  heroAv = null;
   app.innerHTML = `
     <div class="stack">
-      <section class="panel">
-        <div class="me-card" id="meCard"></div>
-        <details style="margin-top:.8rem"><summary class="btn small">Ubah avatar</summary><div id="lobbyAv" style="margin-top:.8rem"></div></details>
+      <section class="panel hero">
+        <button type="button" class="hero-av" id="poke" aria-label="Colek avatarmu"><span id="heroImg"></span><span class="bubble-slot" id="heroBubble"></span></button>
+        <div class="hero-info"><div class="nm" id="meName"></div><div class="ord" id="meOrd"></div><span class="chip mint" id="meBell"></span></div>
       </section>
-      <section class="panel center"><h2 class="pulse">Menunggu admin memulai…</h2></section>
+      <div>
+        <p class="react-hint">Ketuk, reaksimu muncul di layar utama.</p>
+        <div class="react-row" id="reacts" role="group" aria-label="Kirim reaksi ke layar utama">${REACTS.map(([k, e, l]) => `<button type="button" class="react-btn" data-react="${k}" aria-label="${l}" title="${l}">${e}</button>`).join("")}</div>
+      </div>
+      <details class="av-det"><summary class="btn small">Ubah avatar</summary><div id="lobbyAv" class="av-body"></div></details>
+      <h2 class="wait pulse">Menunggu admin memulai…</h2>
       <section class="panel">
         <h2>Pilih bel kamu</h2>
-        <p class="muted">Ketuk untuk mendengar. Bel yang sudah dipakai pemain lain tidak bisa dipilih.</p>
+        <p class="muted">Ketuk untuk mencoba: belmu juga berbunyi di layar utama. Bel yang sudah dipakai pemain lain tidak bisa dipilih.</p>
         <div class="bell-grid" id="bells"></div>
       </section>
       <section class="panel"><h2>Pemain lain <span class="chip" id="otherCount"></span></h2><ul class="others" id="others"></ul></section>
@@ -349,19 +425,34 @@ function skeletonLobby() {
     localStorage.setItem("tts_avatar", JSON.stringify(a));
     sock.send({ type: "set_avatar", avatar: a });
   });
+  $("#poke").addEventListener("click", () => {
+    Sound.unlock();
+    hop($("#poke"));
+    sendReact("wave");
+  });
+  $("#reacts").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-react]");
+    if (!b) return;
+    Sound.unlock();
+    sendReact(b.dataset.react);
+  });
   $("#bells").addEventListener("click", (e) => {
     const b = e.target.closest("[data-bell]");
     if (!b || b.disabled) return;
     Sound.unlock();
     Sound.play(b.dataset.bell);
     if (b.dataset.bell !== mine()?.bell) sock.send({ type: "set_bell", bell: b.dataset.bell });
+    sendReact("bell"); // same ordered stream: the host sees the new bell before the test
   });
 }
 
 function updateLobby() {
   const you = mine();
-  $("#meCard").innerHTML = `${avatarImg(you.avatar, 120, you.nickname)}<div><p class="eyebrow">Kamu</p><div class="nm">${esc(you.nickname)}</div>
-  <span class="chip mint">🔔 ${esc(Sound.label(you.bell))}</span></div>`;
+  const av = JSON.stringify(you.avatar);
+  if (av !== heroAv) { heroAv = av; $("#heroImg").innerHTML = avatarImg(you.avatar, 128, you.nickname); }
+  $("#meName").textContent = you.nickname;
+  $("#meOrd").textContent = `Kamu pemain ke-${st.players.findIndex((p) => p.id === myId) + 1}`;
+  $("#meBell").textContent = `🔔 ${Sound.label(you.bell)}`;
   const takenBy = new Map(st.players.filter((p) => p.id !== myId).map((p) => [p.bell, p.nickname]));
   $("#bells").innerHTML = st.bells.map((id) => {
     const on = id === you.bell;
@@ -372,8 +463,8 @@ function updateLobby() {
   const others = st.players.filter((p) => p.id !== myId);
   $("#otherCount").textContent = others.length;
   $("#others").innerHTML = others.length
-    ? others.map((p) => `<li class="${p.connected ? "" : "dim"}">${avatarImg(p.avatar, 40, p.nickname)}<span>${esc(p.nickname)}</span><span class="chip">🔔 ${esc(Sound.label(p.bell))}</span></li>`).join("")
-    : `<li class="muted">Belum ada pemain lain.</li>`;
+    ? others.map((p) => `<li data-pid="${esc(p.id)}" class="${p.connected ? "" : "dim"}">${avatarImg(p.avatar, 40, p.nickname)}<span class="on">${esc(p.nickname)}</span><span class="rx" aria-hidden="true"></span><span class="chip">🔔 ${esc(Sound.label(p.bell))}</span></li>`).join("")
+    : `<li class="muted">Kamu yang pertama. Yang lain menyusul.</li>`;
 }
 
 // ----- playing -----

@@ -130,6 +130,7 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
 {"type":"set_avatar","avatar":{...}}                              // lobby only
 {"type":"buzz"}
 {"type":"answer","text":"GAJAH"}                                 // normalized server-side; length must equal clue length, else treated wrong
+{"type":"react","kind":"wave"}                                   // lobby only; kind ∈ wave|tawa|api|pesta|degdegan|bell ("bell" = bell test)
 
 // any client (host or player), any phase after hello — clock sync, see below
 {"type":"ping","t0":1234.5}
@@ -152,6 +153,7 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
 {"type":"state","state": RoomState}       // full snapshot; sent on join and after EVERY change (rooms are small)
 {"type":"buzz","player_id":"p3","bell":"siuuu"}                 // fire-and-forget cue to play the sound immediately
 {"type":"result","player_id":"p3","correct":true,"clue_id":"3-down","delta":10}     // for animations
+{"type":"react","player_id":"p3","kind":"tawa"}                 // lobby fun, relayed to everyone in the room. kind "bell": the host plays that player's current bell
 {"type":"pong","t0":1234.5,"server":1793246880461}               // reply to `ping`: t0 echoed verbatim, server = unix ms when the server read the ping
 ```
 
@@ -202,6 +204,7 @@ Client (`liveSocket` in `web/common.js`): clock = `performance.timeOrigin + perf
 - Phase transitions to finished automatically when every clue is solved or revealed.
 - Host disconnect: room keeps running; host can reconnect (any admin). Room is deleted 30 min after finishing, or 2 h after last activity.
 - Max 50 players per room.
+- Lobby reactions (`react`): relay only, through the room goroutine, never part of RoomState and never persisted. Accepted only from players in phase lobby: the host gets the error `Hanya untuk pemain`; an unknown `kind` gets `Reaksi tidak dikenal`; outside the lobby the message is dropped silently. Per player: ≥ 600 ms between accepted reacts, and ≥ 1500 ms between accepted `bell` reacts; excess is dropped silently (no error frame). Kinds are fixed server-side: `["wave","tawa","api","pesta","degdegan","bell"]`.
 - Bells: built-in ids `["siuuu","fahhh","arghhh","ack","wow","saiyan","bong","setrum","kucing-nangis","dexter","crow-zero","day-in-life"]` (files `web/sounds/<id>.mp3`). New player gets first free id in list order. `set_bell` to a taken id → error `Bel sudah dipakai pemain lain`.
 
 ## Markdown import format
@@ -230,7 +233,7 @@ batas_waktu: 10
 
 ## Frontend
 
-Plain HTML/CSS/JS, no build step, no CDN. Shared files (DONE, do not fork): `web/theme.css` (tokens, ubin/tile, buttons, chips, panels), `web/common.js` (ES module: `api`, `esc`, `toast`, `formatDuration`, `formatDate`, `avatarImg`, `Sound`, `liveSocket`, `fmtCountdown`, board pixel helpers), `web/vendor/avatar.js`, `web/fonts/*`.
+Plain HTML/CSS/JS, no build step, no CDN. Shared files (DONE, do not fork): `web/theme.css` (tokens, ubin/tile, buttons, chips, panels), `web/common.js` (ES module: `api`, `esc`, `toast`, `formatDuration`, `formatDate`, `avatarImg`, `Sound`, `liveSocket`, `fmtCountdown`, board pixel helpers), `web/vendor/avatar.js`, `web/fonts/*`, `web/icons/*` (favicon, apple-touch, PWA manifest; masters in `docs/brand/`). Every HTML page links the same icon set in `<head>`.
 
 Pages (hash routing within each HTML):
 - `web/index.html` + `web/app.js` — login/register, solo list/play/leaderboard, admin (quizzes, editor, import, settings, users, live history), profile avatar editor. Admin "Mulai live" on a quiz → POST room → open `/host.html#<code>` in a new tab.

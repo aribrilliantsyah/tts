@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"slices"
+	"time"
 
 	"tts/internal/crossword"
 	"tts/internal/store"
@@ -26,6 +27,16 @@ const (
 
 // Bells is the built-in bell list, in fixed order.
 var Bells = []string{"siuuu", "fahhh", "arghhh", "ack", "wow", "saiyan", "bong", "setrum", "kucing-nangis", "dexter", "crow-zero", "day-in-life"}
+
+// Reactions is the fixed set of lobby reaction kinds, in display order. "bell" is a bell test:
+// hosts play the sender's current bell. Reaction kinds are never persisted.
+var Reactions = []string{"wave", "tawa", "api", "pesta", "degdegan", "bell"}
+
+// Lobby reaction rate limits per player. Bell tests are also subject to the general reaction gap.
+const (
+	ReactGap = 600 * time.Millisecond
+	BellGap  = 1500 * time.Millisecond
+)
 
 // PublicCell is one grid square without its letter.
 type PublicCell struct {
@@ -160,6 +171,7 @@ type Msg struct {
 	AnswerSeconds int             `json:"answer_seconds"`
 	PlayerID      string          `json:"player_id"`
 	ClueID        string          `json:"clue_id"`
+	Kind          string          `json:"kind"`
 }
 
 type stateMsg struct {
@@ -195,4 +207,10 @@ type resultMsg struct {
 	Correct  bool   `json:"correct"`
 	ClueID   string `json:"clue_id"`
 	Delta    int    `json:"delta"`
+}
+
+type reactMsg struct {
+	Type     string `json:"type"`
+	PlayerID string `json:"player_id"`
+	Kind     string `json:"kind"`
 }

@@ -6,6 +6,9 @@ const app = $("#app");
 const code = location.hash.replace(/^#\/?/, "").trim();
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DIR = { across: "Mendatar", down: "Menurun" };
+const REACT_EMOJI = { wave: "👋", tawa: "😂", api: "🔥", pesta: "🎉", degdegan: "😬" };
+const CODE_TILT = [-6, 4, -3, 5, -4, 3]; // degrees, like the TTS logo
+const TILE_TILT = [-2, 1.5, -1, 2, -1.5, 1];
 
 let sock = null;
 let st = null; // latest RoomState
@@ -14,7 +17,7 @@ let phase = null; // phase currently rendered (skeleton)
 let joinUrl = "";
 let selected = null; // clue id last picked by the operator
 let lastCell = null; // { key, dir } for across/down toggling on grid clicks
-const known = new Set(); // player ids already shown in the lobby
+const tiles = new Map(); // player id -> tile element in the lobby grid
 let outcome = null; // { text, bad, until }
 let outcomeKey; // undefined until the first snapshot so stale outcomes are not replayed on load
 const anim = new Map(); // cell key -> { cls, i, until }
@@ -116,6 +119,9 @@ function onMessage(msg) {
       if (row) { row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash"); }
       break;
     }
+    case "react":
+      onReact(msg);
+      break;
     case "result":
       onResult(msg);
       break;
@@ -164,6 +170,7 @@ function cues(prev, next) {
     if (next.phase === "playing") {
       Sound.play("ev-start");
       Sound.music("mu-carefree");
+      startCountdown();
     } else if (next.phase === "finished") finishSequence(true);
   }
   if (next.active && next.active.clue_id !== prev.active?.clue_id) Sound.play("ev-clue");
@@ -258,19 +265,21 @@ function render() {
 // ----- lobby -----
 
 function skeletonLobby() {
+  tiles.clear();
   app.innerHTML = `
     <div class="lobby">
       <section class="panel join-card">
-        <p class="eyebrow">Kode room</p>
-        <div class="room-code">${esc(code)}</div>
+        <h2>Ayo gabung!</h2>
+        <div class="code-tiles" role="img" aria-label="Kode room ${esc(code)}">${[...code].map((d, i) => `<span class="code-tile" style="--r:${CODE_TILT[i % CODE_TILT.length]}deg">${esc(d)}</span>`).join("")}</div>
         <img class="qr" src="/api/live/rooms/${encodeURIComponent(code)}/qr.png" alt="QR untuk bergabung" width="260" height="260">
         <p class="muted">Pindai QR atau buka:</p>
-        <p class="join-url">${esc(joinUrl)}</p>
+        <p class="join-url">${(() => { const i = joinUrl.indexOf("/play.html"); return i < 0 ? esc(joinUrl) : `<span class="host">${esc(joinUrl.slice(0, i))}</span><wbr><span class="path">${esc(joinUrl.slice(i))}</span>`; })()}</p>
       </section>
       <div class="lobby-main">
         <section class="panel">
           <div class="row"><h2>Pemain <span id="pcount" class="chip"></span></h2></div>
-          <div id="pgrid"></div>
+          <div class="player-grid" id="pgrid"></div>
+          <div class="empty hidden" id="pempty">Belum ada yang datang. Pindai QR di samping, jangan malu-malu.</div>
         </section>
         <section class="panel">
           <h2>Aturan room</h2>
@@ -301,27 +310,105 @@ function sendSettings() {
   sock.send({ type: "settings", points_correct: val("#s_points"), penalty_wrong: val("#s_penalty"), answer_seconds: val("#s_seconds") });
 }
 
+/** Tile for a new player: dropped in like a placed letter tile. `k` staggers tiles that arrive in the same snapshot. */
+function tileEl(p, idx, k) {
+  const el = document.createElement("div");
+  el.className = "ptile place";
+  el.dataset.pid = p.id;
+  el.style.cssText = `--r:${TILE_TILT[idx % TILE_TILT.length]}deg;--i:${idx};--k:${k}`;
+  el.innerHTML = `<button type="button" class="kick" title="Keluarkan">✕</button><div class="pav"></div><b class="pn"></b><span class="chip sun pb"></span><small class="muted pd">terputus</small><span class="bubble-slot"></span>`;
+  const kick = el.querySelector(".kick");
+  kick.dataset.kick = p.id;
+  kick.setAttribute("aria-label", `Keluarkan ${p.nickname}`);
+  el.querySelector(".pn").textContent = p.nickname;
+  el.addEventListener("animationend", (e) => { if (e.target === el) el.classList.remove("place"); });
+  return el;
+}
+
+function hop(el) {
+  if (el.classList.contains("hop")) return;
+  el.classList.add("hop");
+  setTimeout(() => el.classList.remove("hop"), 520);
+}
+
+/** Speech tile over a player tile; replaces the previous one and dismisses itself. */
+function bubble(el, html, bell = false) {
+  const slot = el.querySelector(".bubble-slot");
+  clearTimeout(el._bt);
+  slot.innerHTML = `<span class="bubble${bell ? " bell" : ""}">${html}</span>`;
+  el._bt = setTimeout(() => { slot.innerHTML = ""; }, 1800);
+}
+
+function onReact(msg) {
+  if (phase !== "lobby" || !st) return;
+  const el = tiles.get(msg.player_id);
+  const p = player(msg.player_id);
+  if (!el || !p) return;
+  if (msg.kind === "bell") {
+    Sound.play(p.bell);
+    el.classList.remove("bell-hit");
+    void el.offsetWidth;
+    el.classList.add("bell-hit");
+    hop(el);
+    bubble(el, `🔔 ${esc(Sound.label(p.bell))}`, true);
+  } else if (REACT_EMOJI[msg.kind]) {
+    hop(el);
+    bubble(el, REACT_EMOJI[msg.kind]);
+  }
+}
+
 function renderLobby() {
   const ps = st.players;
   $("#pcount").textContent = ps.length;
-  $("#pgrid").innerHTML = ps.length
-    ? `<div class="player-grid">${ps.map((p) => `
-        <div class="ptile${p.connected ? "" : " dim"}${known.has(p.id) ? "" : " pop-in"}" data-pid="${esc(p.id)}">
-          <button type="button" class="kick" data-kick="${esc(p.id)}" aria-label="Keluarkan ${esc(p.nickname)}" title="Keluarkan">✕</button>
-          ${avatarImg(p.avatar, 84, p.nickname)}
-          <b>${esc(p.nickname)}</b>
-          <span class="chip sun">🔔 ${esc(Sound.label(p.bell))}</span>
-          ${p.connected ? "" : `<small class="muted">terputus</small>`}
-        </div>`).join("")}</div>`
-    : `<div class="empty">Belum ada pemain. Ajak peserta memindai QR di samping.</div>`;
-  ps.forEach((p) => known.add(p.id));
+  // Keyed update: tiles persist across snapshots so hops, bubbles and bobbing are never cut off.
+  const grid = $("#pgrid");
+  const ids = new Set(ps.map((p) => p.id));
+  for (const [id, el] of tiles) if (!ids.has(id)) { el.remove(); tiles.delete(id); }
+  let k = 0;
+  ps.forEach((p, idx) => {
+    let el = tiles.get(p.id);
+    if (!el) { el = tileEl(p, idx, k++); tiles.set(p.id, el); grid.append(el); }
+    el.classList.toggle("dim", !p.connected);
+    el.querySelector(".pd").classList.toggle("hidden", p.connected);
+    const av = JSON.stringify(p.avatar);
+    if (el._av !== av) {
+      if (el._av !== undefined) hop(el); // avatar was changed on a phone
+      el._av = av;
+      el.querySelector(".pav").innerHTML = avatarImg(p.avatar, 96, p.nickname);
+    }
+    const bell = `🔔 ${Sound.label(p.bell)}`;
+    const pb = el.querySelector(".pb");
+    if (pb.textContent !== bell) pb.textContent = bell;
+  });
+  $("#pempty").classList.toggle("hidden", ps.length > 0);
   const fields = { "#s_points": st.settings.points_correct, "#s_penalty": st.settings.penalty_wrong, "#s_seconds": st.settings.answer_seconds };
   for (const [id, v] of Object.entries(fields)) {
     const inp = $(id);
     if (document.activeElement !== inp) inp.value = v;
   }
   $("#startBtn").disabled = ps.length === 0;
-  $("#startHint").textContent = ps.length === 0 ? "Butuh minimal 1 pemain." : `${ps.length} pemain siap.`;
+  $("#startHint").textContent = ps.length === 0 ? "Butuh minimal 1 pemain." : ps.length === 1 ? "1 pemain siap. Sendirian juga bisa, tapi sepi." : `${ps.length} pemain siap.`;
+}
+
+let countdownTimer = null;
+/** 3-2-1 over the whole screen when the game starts. Visual only (≤ 2.3 s); the overlay ignores pointer events and removes itself. */
+function startCountdown() {
+  clearTimeout(countdownTimer);
+  document.getElementById("count321")?.remove();
+  const el = document.createElement("div");
+  el.id = "count321";
+  el.className = "count321";
+  el.setAttribute("aria-hidden", "true");
+  document.body.append(el);
+  const steps = reduceMotion ? [["Mulai!", 800]] : [["3", 600], ["2", 600], ["1", 600], ["Mulai!", 500]];
+  let i = 0;
+  const next = () => {
+    if (i >= steps.length) { el.remove(); return; }
+    const [text, ms] = steps[i++];
+    el.innerHTML = `<span class="count-tile" data-n="${reduceMotion ? 4 : i}">${text}</span>`;
+    countdownTimer = setTimeout(next, ms);
+  };
+  next();
 }
 
 // ----- playing -----
