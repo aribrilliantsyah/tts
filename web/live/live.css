@@ -14,6 +14,14 @@
 .overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(28, 37, 65, .55); }
 .overlay .btn { font-size: 1.6rem; padding: 1rem 2rem; }
 
+/* Sound controls: host = fixed panel bottom-right, player = mute button in the header */
+.sound-mute { width: 44px; height: 44px; padding: 0; border: 2.5px solid var(--navy); border-radius: 12px; background: var(--paper); box-shadow: var(--lift); font-size: 1.3rem; line-height: 1; cursor: pointer; flex: none; }
+.sound-mute:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--navy); }
+.sound-mute[aria-pressed="true"] { background: var(--tomato-soft); }
+.sound-ctl { position: fixed; right: 1rem; bottom: 1rem; z-index: 60; display: flex; align-items: center; gap: .7rem; padding: .5rem .8rem; background: var(--paper); border: var(--line); border-radius: 16px; box-shadow: var(--lift-lg); }
+.sound-ctl label { display: flex; align-items: center; gap: .4rem; margin: 0; font-weight: 800; font-size: .9rem; }
+.sound-ctl input[type="range"] { width: 7.5rem; height: 44px; margin: 0; accent-color: var(--tomato); cursor: pointer; }
+
 /* Message screens (not admin, kicked, room missing) */
 .message { max-width: 34rem; margin: 3rem auto; text-align: center; }
 .message .row { justify-content: center; margin-top: 1rem; }
@@ -122,7 +130,7 @@
 .ring { width: 76px; height: 76px; }
 .ring circle { fill: none; stroke-width: 7; }
 .ring .bg { stroke: rgba(28, 37, 65, .15); }
-.ring .fg { stroke: var(--mint); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .1s linear; }
+.ring .fg { stroke: var(--mint); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
 .ring.low .fg { stroke: var(--tomato); }
 .ring text { font: 400 26px var(--display); fill: var(--navy); text-anchor: middle; dominant-baseline: central; }
 .delta { position: fixed; left: 50%; top: 38%; z-index: 85; padding: .5rem 1.4rem; border: var(--line); border-radius: 18px; box-shadow: var(--lift-lg); font: 400 3rem/1.1 var(--display); text-align: center; transform: translate(-50%, 0); animation: live-rise 1.6s ease-out forwards; pointer-events: none; }

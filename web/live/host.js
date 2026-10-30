@@ -1,5 +1,5 @@
 // Main screen (projected) for a live room. Route: /host.html#<code>. Protocol: docs/spec.md.
-import { api, esc, toast, avatarImg, Bells, liveSocket } from "/common.js";
+import { api, esc, toast, avatarImg, Sound, liveSocket, fmtCountdown, setBoardCell, fitCell, snapBoard } from "/common.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $("#app");
@@ -9,7 +9,7 @@ const DIR = { across: "Mendatar", down: "Menurun" };
 
 let sock = null;
 let st = null; // latest RoomState
-let offset = 0; // server_now − Date.now()
+let resizeWatch = null; // ResizeObserver: re-snaps the board whenever content above it changes height
 let phase = null; // phase currently rendered (skeleton)
 let joinUrl = "";
 let selected = null; // clue id last picked by the operator
@@ -25,9 +25,15 @@ let gotState = false;
 // ---------- boot ----------
 
 $("#unlockBtn").addEventListener("click", () => {
-  Bells.unlock();
+  Sound.unlock();
   $("#unlock").classList.add("hidden");
 });
+Sound.bindControls($("#soundCtl"));
+// Host plays everything: events, every bell (any player can buzz) and the music beds.
+Sound.preload([
+  "ev-join", "ev-start", "ev-clue", "ev-ticktock", "ev-correct", "ev-wrong", "ev-reveal", "ev-winner", "ev-applause",
+  ...Sound.BELLS.map((b) => b.id), "mu-elevator", "mu-carefree", "mu-credits",
+]);
 
 boot();
 
@@ -95,14 +101,16 @@ function onStatus(s) {
 function onMessage(msg) {
   if (phase === "message") return;
   switch (msg.type) {
-    case "state":
+    case "state": {
       gotState = true;
+      const prev = st;
       st = msg.state;
-      offset = st.server_now - Date.now();
+      cues(prev, st);
       render();
       break;
+    }
     case "buzz": {
-      Bells.play(msg.bell);
+      Sound.play(msg.bell);
       flash.set(msg.player_id, Date.now() + 900);
       const row = app.querySelector(`[data-pid="${CSS.escape(msg.player_id)}"]`);
       if (row) { row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash"); }
@@ -121,6 +129,8 @@ function onMessage(msg) {
 function onResult(msg) {
   const clue = st?.quiz.clues.find((c) => c.id === msg.clue_id);
   if (!clue) return;
+  ticking?.handle?.stop(); // the result ends the answer window; do not wait for the next snapshot
+  Sound.play(msg.correct ? "ev-correct" : "ev-wrong");
   const until = Date.now() + 1200;
   if (msg.correct) {
     cellsOf(clue).forEach((k, i) => anim.set(k, { cls: "win", i, until }));
@@ -132,9 +142,66 @@ function onResult(msg) {
   setTimeout(() => st && render(), 1250);
 }
 
+// ---------- sound cues ----------
+// Driven by diffs between consecutive snapshots, so a page load or reconnect never replays old events.
+
+const heard = new Set(); // player ids whose join was already announced
+let ticking = null; // { key, handle } for the running ev-ticktock
+let finishSeq = 0; // invalidates a pending winner → applause → credits chain
+
+function cues(prev, next) {
+  Sound.duck(!!next.active);
+  syncTick(next);
+  if (!prev) {
+    next.players.forEach((p) => heard.add(p.id));
+    if (next.phase === "finished") finishSequence(false);
+    else Sound.music(next.phase === "lobby" ? "mu-elevator" : "mu-carefree");
+    return;
+  }
+  if (next.players.some((p) => !heard.has(p.id))) Sound.play("ev-join");
+  next.players.forEach((p) => heard.add(p.id));
+  if (prev.phase !== next.phase) {
+    if (next.phase === "playing") {
+      Sound.play("ev-start");
+      Sound.music("mu-carefree");
+    } else if (next.phase === "finished") finishSequence(true);
+  }
+  if (next.active && next.active.clue_id !== prev.active?.clue_id) Sound.play("ev-clue");
+  const lo = next.last_outcome;
+  if (lo?.kind === "exhausted" && !(prev.last_outcome?.kind === "exhausted" && prev.last_outcome.clue_id === lo.clue_id)) Sound.play("ev-reveal");
+}
+
+/** ev-winner, then ev-applause when it ends, then the credits loop. `live` = the game just ended in front of us. */
+function finishSequence(live) {
+  const seq = ++finishSeq;
+  Sound.music(null);
+  if (!live) { Sound.music("mu-credits"); return; }
+  Sound.play("ev-winner").ended
+    .then(() => (seq === finishSeq ? Sound.play("ev-applause").ended : null))
+    .then(() => { if (seq === finishSeq) Sound.music("mu-credits"); });
+}
+
+/** Tick-tock is scheduled so its last sample lands on the deadline; late starts seek into the buffer. */
+function syncTick(next) {
+  const a = next.active;
+  const key = a && a.state === "answering" && a.deadline ? `${a.clue_id}|${a.answering_player}|${a.deadline}` : null;
+  if (key === (ticking?.key ?? null)) return;
+  ticking?.handle?.stop();
+  ticking = key ? { key, handle: null } : null;
+  if (!key) return;
+  const run = ticking;
+  Sound.preload(["ev-ticktock"]).then(() => {
+    const dur = Sound.duration("ev-ticktock");
+    if (ticking !== run || dur === null) return;
+    const startIn = a.deadline - dur * 1000 - sock.serverNow(); // ms until the buffer must start
+    run.handle = startIn >= 0
+      ? Sound.play("ev-ticktock", { when: Sound.time() + startIn / 1000 })
+      : Sound.play("ev-ticktock", { offset: -startIn / 1000 });
+  });
+}
+
 // ---------- helpers ----------
 
-const now = () => Date.now() + offset;
 const player = (id) => st.players.find((p) => p.id === id);
 const pname = (id) => player(id)?.nickname ?? "?";
 const pickable = (c) => c.status === "open" || c.status === "skipped";
@@ -144,27 +211,29 @@ function cellsOf(c) {
     c.direction === "across" ? `${c.row},${c.col + i}` : `${c.row + i},${c.col}`);
 }
 
-function secondsLeft(deadline) {
-  return Math.max(0, Math.ceil((deadline - now()) / 1000));
-}
-
 function countdown(deadline) {
-  const s = secondsLeft(deadline);
-  return `<span class="cd${s <= 3 ? " low" : ""}" data-deadline="${deadline}">${s}</span>`;
+  const { text, low } = fmtCountdown(deadline - sock.serverNow());
+  return `<span class="cd${low ? " low" : ""}" data-deadline="${deadline}">${text}</span>`;
 }
 
-setInterval(() => {
-  for (const el of app.querySelectorAll("[data-deadline]")) {
-    const s = secondsLeft(Number(el.dataset.deadline));
-    el.textContent = s;
-    el.classList.toggle("low", s <= 3);
+// Countdowns and the outcome banner are driven by animation frames, not a coarse interval.
+function frame() {
+  if (sock && st) {
+    const t = sock.serverNow();
+    for (const el of app.querySelectorAll("[data-deadline]")) {
+      const { text, low } = fmtCountdown(Number(el.dataset.deadline) - t);
+      if (el.textContent !== text) el.textContent = text;
+      el.classList.toggle("low", low);
+    }
   }
   if (outcome && Date.now() > outcome.until) {
     outcome = null;
     const slot = $("#outcome");
     if (slot) slot.innerHTML = "";
   }
-}, 200);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 
 function ranked() {
   return [...st.players].sort((a, b) => b.score - a.score || a.nickname.localeCompare(b.nickname));
@@ -241,7 +310,7 @@ function renderLobby() {
           <button type="button" class="kick" data-kick="${esc(p.id)}" aria-label="Keluarkan ${esc(p.nickname)}" title="Keluarkan">✕</button>
           ${avatarImg(p.avatar, 84, p.nickname)}
           <b>${esc(p.nickname)}</b>
-          <span class="chip sun">🔔 ${esc(Bells.label(p.bell))}</span>
+          <span class="chip sun">🔔 ${esc(Sound.label(p.bell))}</span>
           ${p.connected ? "" : `<small class="muted">terputus</small>`}
         </div>`).join("")}</div>`
     : `<div class="empty">Belum ada pemain. Ajak peserta memindai QR di samping.</div>`;
@@ -282,17 +351,21 @@ function skeletonPlaying() {
       </aside>
     </div>`;
   sizeBoard();
+  resizeWatch?.disconnect();
+  resizeWatch = new ResizeObserver(() => snapBoard($("#board")));
+  for (const sel of ["#active", "#outcome", ".stage-main"]) resizeWatch.observe($(sel));
 }
 
+/** Integer cell size so every tile edge falls on a whole pixel; then align the board origin to the device-pixel grid. */
 function sizeBoard() {
   const board = $("#board");
   if (!board || !st) return;
   const { width, height } = st.quiz;
-  const wrap = board.closest(".panel");
-  const availW = wrap.clientWidth - 40 - 6 * (width - 1);
-  const availH = window.innerHeight * 0.62 - 20 - 6 * (height - 1);
-  const cell = Math.max(24, Math.min(76, availW / width, availH / height));
-  board.style.setProperty("--cell", `${Math.floor(cell)}px`);
+  const panel = board.closest(".panel");
+  const ps = getComputedStyle(panel);
+  const boxW = panel.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
+  setBoardCell(board, fitCell(board, boxW, window.innerHeight * 0.62, width, height, 24, 76));
+  snapBoard(board);
 }
 window.addEventListener("resize", sizeBoard);
 

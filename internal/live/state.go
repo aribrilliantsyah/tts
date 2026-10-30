@@ -25,7 +25,7 @@ const (
 )
 
 // Bells is the built-in bell list, in fixed order.
-var Bells = []string{"ding", "klakson", "terompet", "bebek", "gong", "laser", "kucing", "drum", "peluit", "bel-sepeda", "pop", "koin"}
+var Bells = []string{"siuuu", "fahhh", "arghhh", "ack", "wow", "saiyan", "bong", "setrum", "kucing-nangis", "dexter", "crow-zero", "day-in-life"}
 
 // PublicCell is one grid square without its letter.
 type PublicCell struct {

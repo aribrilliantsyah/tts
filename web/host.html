@@ -21,6 +21,11 @@
   <div id="unlock" class="overlay">
     <button type="button" class="btn go" id="unlockBtn">Aktifkan suara</button>
   </div>
+  <div id="soundCtl" class="sound-ctl" role="group" aria-label="Pengaturan suara">
+    <button type="button" class="sound-mute" data-sound-mute></button>
+    <label>Efek <input type="range" min="0" max="1" step="0.05" data-sound-vol="sfx" aria-label="Volume efek"></label>
+    <label>Musik <input type="range" min="0" max="1" step="0.05" data-sound-vol="music" aria-label="Volume musik"></label>
+  </div>
   <div id="toast" role="status"></div>
 </body>
 </html>

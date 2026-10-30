@@ -626,7 +626,7 @@ func TestAnswerNeverInSnapshotBeforeSolve(t *testing.T) {
 func TestResumeKeepsScoreBellLockout(t *testing.T) {
 	e := newEnv(t)
 	ps := e.start("ani", "budi")
-	e.room.Message(ps[0].c, Msg{Type: "set_bell", Bell: "gong"})
+	e.room.Message(ps[0].c, Msg{Type: "set_bell", Bell: "bong"})
 	e.host_(Msg{Type: "open_clue", ClueID: "1-across"})
 	e.room.Message(ps[0].c, Msg{Type: "buzz"})
 	e.room.Message(ps[0].c, Msg{Type: "answer", Text: "SAPI"})
@@ -639,7 +639,7 @@ func TestResumeKeepsScoreBellLockout(t *testing.T) {
 	}
 	st := e.room.snapshotSync()
 	p := findPlayer(st, again.you.PlayerID)
-	if !p.Connected || p.Score != -5 || p.Bell != "gong" || len(st.Players) != 2 {
+	if !p.Connected || p.Score != -5 || p.Bell != "bong" || len(st.Players) != 2 {
 		t.Fatalf("player %+v", p)
 	}
 	e.room.Message(again.c, Msg{Type: "buzz"})
@@ -689,20 +689,20 @@ func TestBells(t *testing.T) {
 	a := e.join("ani", nil, "")
 	b := e.join("budi", nil, "")
 	st := e.room.snapshotSync()
-	if findPlayer(st, a.you.PlayerID).Bell != "ding" || findPlayer(st, b.you.PlayerID).Bell != "klakson" {
+	if findPlayer(st, a.you.PlayerID).Bell != "siuuu" || findPlayer(st, b.you.PlayerID).Bell != "fahhh" {
 		t.Fatalf("defaults %+v", st.Players)
 	}
 	if !slices.Equal(st.Bells, Bells) {
 		t.Fatal("bell list")
 	}
 	e.drain(b.c)
-	e.room.Message(b.c, Msg{Type: "set_bell", Bell: "ding"})
+	e.room.Message(b.c, Msg{Type: "set_bell", Bell: "siuuu"})
 	if errs := e.errors(b.c); len(errs) != 1 || errs[0] != "Bel sudah dipakai pemain lain" {
 		t.Fatalf("errors %v", errs)
 	}
-	e.room.Message(a.c, Msg{Type: "set_bell", Bell: "koin"})
+	e.room.Message(a.c, Msg{Type: "set_bell", Bell: "day-in-life"})
 	c := e.join("cici", nil, "")
-	if findPlayer(e.room.snapshotSync(), c.you.PlayerID).Bell != "ding" {
+	if findPlayer(e.room.snapshotSync(), c.you.PlayerID).Bell != "siuuu" {
 		t.Fatal("freed bell not reused")
 	}
 }

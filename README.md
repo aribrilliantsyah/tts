@@ -56,7 +56,18 @@ Hanya `judul` wajib. Satu file = satu kuis; unggah banyak file sekaligus di **Ad
 
 ## Suara bel
 
-Taruh file `web/sounds/<id>.mp3` (ID: ding, klakson, terompet, bebek, gong, laser, kucing, drum, peluit, bel-sepeda, pop, koin) lalu build ulang. Bel tanpa file memakai suara sintetis.
+Semua suara ada di `web/sounds/*.mp3` (ikut tertanam di binary). Tidak ada suara sintetis lagi: setiap bel punya file asli.
+
+| Bel pemain (ID) | Nama di UI |
+|---|---|
+| `siuuu` `fahhh` `arghhh` `ack` `wow` `saiyan` | Siuuu, Fahhh, Arghhh, Ack, Wow anime, Saiyan |
+| `bong` `setrum` `kucing-nangis` `dexter` `crow-zero` `day-in-life` | Bong, Setrum, Kucing nangis, Dexter, Crow Zero, A day in my life |
+
+Efek acara (`ev-join`, `ev-start`, `ev-clue`, `ev-ticktock`, `ev-correct`, `ev-wrong`, `ev-reveal`, `ev-winner`, `ev-applause`, `ev-yay`, `ev-build`) dan musik layar utama (`mu-elevator` lobi, `mu-carefree` bermain, `mu-credits` selesai) diputar lewat Web Audio (buffer ter-decode, tanpa jeda). Musik hanya di layar utama.
+
+- Browser menolak suara sebelum ada interaksi: klik **Aktifkan suara** di layar utama; di HP/laptop pemain, ketukan atau tombol pertama sudah cukup.
+- Layar utama: kontrol di kanan bawah (bisu, slider Efek dan Musik). Pemain: tombol bisu di header. Volume tersimpan di `localStorage` (`tts_vol_sfx`, `tts_vol_music`).
+- Mengganti/menambah bel: taruh `web/sounds/<id>.mp3`, tambahkan id ke `Bells` di `internal/live/state.go` dan label ke `Sound.BELLS` di `web/common.js`, lalu build ulang.
 
 ## Pengembangan
 

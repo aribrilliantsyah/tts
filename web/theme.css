@@ -91,16 +91,19 @@ label { display: block; font-weight: 800; margin: .8rem 0 .3rem; }
 .check input { width: 1.15rem; height: 1.15rem; accent-color: var(--mint); }
 
 /* Crossword board (tiles) */
-.board { display: grid; gap: 6px; width: max-content; padding: 10px; border-radius: 18px; background: rgba(28, 37, 65, .08); --cell: 3rem; }
+.board { --g: 6px; --p: 10px; display: grid; gap: var(--gx, var(--g)); width: max-content; padding: var(--px, var(--p)); border-radius: 18px; background: rgba(28, 37, 65, .08); --cell: 3rem; }
 .board-wrap { overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
 @media (max-width: 560px) {
-  .board { gap: 3px; padding: 6px; border-radius: 14px; }
+  .board { --g: 3px; --p: 6px; border-radius: 14px; }
   .board-wrap { overflow-x: auto; padding-bottom: 8px; }
 }
 .tile { width: var(--cell); height: var(--cell); position: relative; }
-.tile.open { background: var(--paper); border: 2.5px solid var(--navy); border-radius: 10px; box-shadow: var(--lift); transition: background .12s; display: grid; place-items: center; font: 400 calc(var(--cell) * .5)/1 var(--display); text-transform: uppercase; }
-.tile input { all: unset; width: 100%; height: 100%; text-align: center; font: inherit; line-height: var(--cell); caret-color: transparent; cursor: pointer; display: block; }
-.tile .n { position: absolute; top: 2px; left: 5px; font: 800 calc(var(--cell) * .22)/1 var(--body); pointer-events: none; }
+/* Pixel grid: --cell/--fs/--nfs are whole px (set in JS via common.js boardStyle/setBoardCell); border 3px = whole device px at any DPR. */
+.tile.open { background: var(--paper); border: 3px solid var(--navy); border-radius: 10px; box-shadow: var(--lift); transition: background .12s; display: grid; place-items: center; font: 400 var(--fs, calc(var(--cell) * .5))/1 var(--display); text-transform: uppercase; }
+/* Ink of Bagel Fat One caps sits below the line-box centre; --ly (whole px) lifts it to the optical centre. */
+.tile.open > .l { position: relative; top: calc(var(--ly, 0px) * -1); }
+.tile input { all: unset; width: 100%; height: 100%; text-align: center; font: inherit; line-height: 1; caret-color: transparent; cursor: pointer; display: block; box-sizing: border-box; position: relative; top: calc(var(--ly, 0px) * -1); }
+.tile .n { position: absolute; top: 2px; left: 4px; font: 800 var(--nfs, calc(var(--cell) * .22))/1 var(--body); pointer-events: none; }
 .tile.word { background: var(--sun-soft); }
 .tile.focus { background: var(--sun); }
 .tile.solved { background: var(--mint); }

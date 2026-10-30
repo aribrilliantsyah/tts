@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -165,10 +166,42 @@ func (s *Server) readLoop(ctx context.Context, cancel context.CancelFunc, conn *
 		if typ != websocket.MessageText {
 			continue
 		}
+		recv := s.now() // stamp before any parsing: this is the server time the client's offset math relies on
+		if reply, ok := pong(data, recv); ok {
+			// Answered here, never through the room goroutine: a pong must not queue behind game events.
+			wctx, wcancel := context.WithTimeout(ctx, writeTimeout)
+			err := conn.Write(wctx, websocket.MessageText, reply)
+			wcancel()
+			if err != nil {
+				return
+			}
+			continue
+		}
 		var m live.Msg
 		if json.Unmarshal(data, &m) != nil {
 			continue
 		}
 		room.Message(client, m)
 	}
+}
+
+// pong builds the reply to a {"type":"ping","t0":<number>} frame: t0 echoed verbatim plus the
+// server's unix ms. ok is false when data is not a well-formed ping.
+func pong(data []byte, now time.Time) (reply []byte, ok bool) {
+	var in struct {
+		Type string          `json:"type"`
+		T0   json.RawMessage `json:"t0"`
+	}
+	if json.Unmarshal(data, &in) != nil || in.Type != "ping" {
+		return nil, false
+	}
+	var n float64
+	if json.Unmarshal(in.T0, &n) != nil {
+		return nil, false
+	}
+	reply = append(reply, `{"type":"pong","t0":`...)
+	reply = append(reply, in.T0...)
+	reply = append(reply, `,"server":`...)
+	reply = strconv.AppendInt(reply, now.UnixMilli(), 10)
+	return append(reply, '}'), true
 }

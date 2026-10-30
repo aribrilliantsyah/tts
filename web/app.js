@@ -1,11 +1,15 @@
 // TTS Kuis main SPA: auth, solo play, leaderboard, profile, admin. Hash routing.
-import { esc, api, toast, formatDuration, formatDate, avatarImg, avatarEditor } from "/common.js";
+import { esc, api, toast, formatDuration, formatDate, avatarImg, avatarEditor, Sound, boardStyle, setBoardCell, fitCell, snapBoard } from "/common.js";
 
 const app = document.getElementById("app");
 const nav = document.getElementById("nav");
 let me = null;
 // Teardown hook of the current view (timers, pending saves). Replaced on every route.
 let cleanup = () => {};
+
+// Sound: solo plays ev-wrong / ev-yay / ev-applause, admin plays ev-build. Browsers need a user gesture first; any tap or key unlocks.
+Sound.preload(["ev-wrong", "ev-yay", "ev-applause", "ev-build"]);
+for (const type of ["pointerdown", "keydown"]) document.addEventListener(type, () => Sound.unlock(), { capture: true, once: true });
 
 const isAdmin = () => me?.role === "admin";
 const norm = (s) => String(s).toUpperCase().replace(/[^A-Z]/g, "");
@@ -101,7 +105,7 @@ function wordCells(w) {
 }
 
 /** Static board markup for placed words (answers visible). Numbering: start cells in row-major order. */
-function layoutBoard(words, width, height, cell = "1.7rem") {
+function layoutBoard(words, width, height, cell = 27) {
   const letters = new Map();
   for (const w of words) wordCells(w).forEach((k, i) => letters.set(k, w.answer[i]));
   const starts = new Map();
@@ -114,10 +118,10 @@ function layoutBoard(words, width, height, cell = "1.7rem") {
     for (let c = 0; c < width; c++) {
       const k = `${r},${c}`;
       html += letters.has(k)
-        ? `<div class="tile open">${starts.has(k) ? `<span class="n">${starts.get(k)}</span>` : ""}${esc(letters.get(k))}</div>`
+        ? `<div class="tile open">${starts.has(k) ? `<span class="n">${starts.get(k)}</span>` : ""}<span class="l">${esc(letters.get(k))}</span></div>`
         : `<div class="tile"></div>`;
     }
-  return `<div class="board-wrap"><div class="board preview" style="--cell:${cell};grid-template-columns:repeat(${width},var(--cell))" role="img" aria-label="Pratinjau grid ${width}×${height}">${html}</div></div>`;
+  return `<div class="board-wrap"><div class="board preview" style="${boardStyle(cell)};grid-template-columns:repeat(${width},var(--cell))" role="img" aria-label="Pratinjau grid ${width}×${height}">${html}</div></div>`;
 }
 
 /** Card preview of a quiz's real grid shape (open squares only, no letters). */
@@ -208,7 +212,7 @@ async function playView(id) {
   let focus = clues[0].keys[0];
   let dir = clues[0].direction;
   let wrong = new Set();
-  const cellSize = `clamp(1.35rem, calc((min(100vw, 760px) - 3.2rem) / ${puzzle.width}), 3rem)`;
+  // Cell size is computed in JS (see sizeBoard) so every tile lands on whole device pixels.
 
   app.innerHTML = `
     <div class="page-head row">
@@ -225,7 +229,7 @@ async function playView(id) {
           <button class="btn mint" id="check" type="button">Periksa jawaban</button>
         </div>
         <div class="bubble" id="current" aria-live="polite"></div>
-        <div class="board-wrap"><div class="board" id="board" style="--cell:${cellSize};grid-template-columns:repeat(${puzzle.width},var(--cell))"></div></div>
+        <div class="board-wrap"><div class="board" id="board" style="${boardStyle(40)};grid-template-columns:repeat(${puzzle.width},var(--cell))"></div></div>
         <p class="hint muted hint-keyboard">Ketik untuk mengisi · panah untuk pindah · klik kotak yang sama atau Spasi untuk ganti arah · Tab ke petunjuk berikutnya</p>
         <p class="hint muted hint-touch">Ketuk kotak untuk mengisi · ketuk lagi untuk ganti arah</p>
         <p class="error" id="err" role="alert" hidden></p>
@@ -266,6 +270,19 @@ async function playView(id) {
       board.appendChild(tile);
     }
   }
+  /** Integer cell size from the width available to the board; board origin snapped to the device-pixel grid. */
+  function sizeBoard() {
+    const wrap = board.parentElement;
+    setBoardCell(board, fitCell(board, wrap.clientWidth, Infinity, puzzle.width, 1, 22, 48));
+    snapBoard(board);
+  }
+  sizeBoard();
+  window.addEventListener("resize", sizeBoard);
+  document.fonts?.ready.then(sizeBoard);
+  // The clue bubble and toolbar change height after first paint and move the board: re-align its origin whenever layout above it changes.
+  const boardWatch = new ResizeObserver(() => snapBoard(board));
+  boardWatch.observe(document.querySelector(".play-main"));
+  boardWatch.observe(document.getElementById("current"));
   for (const d of ["across", "down"]) {
     document.getElementById(d).innerHTML = clues
       .filter((c) => c.direction === d)
@@ -434,8 +451,11 @@ async function playView(id) {
         for (const input of inputs.values()) input.parentElement.classList.add("win");
         showDone(r.duration_ms ?? completedAt - attempt.started_at);
         toast("Semua benar!");
+        Sound.play("ev-yay");
+        Sound.play("ev-applause");
         return;
       }
+      if (r.wrong.length) Sound.play("ev-wrong"); // only empty cells left: nothing to judge, stay silent
       toast(r.wrong.length || r.empty ? `${r.wrong.length} huruf salah, ${r.empty} kotak masih kosong` : "Belum lengkap");
       paint();
     } catch (e) {
@@ -452,6 +472,8 @@ async function playView(id) {
   tick();
   cleanup = () => {
     clearInterval(timer);
+    window.removeEventListener("resize", sizeBoard);
+    boardWatch.disconnect();
     flushSave();
   };
   if (completedAt) showDone(completedAt - attempt.started_at);
@@ -784,6 +806,7 @@ async function editorView(id) {
       const L = await api("/api/admin/generate", { method: "POST", body: { words } });
       state.layout = { ...L, words: L.words ?? [], unplaced: L.unplaced ?? [] };
       renderPreview();
+      if (state.layout.words.length) Sound.play("ev-build");
     } catch (ex) {
       setError(err, ex.message);
     } finally {
@@ -897,6 +920,7 @@ function importView() {
         saveError: "",
       }));
       render();
+      if (results.some((r) => r.ok)) Sound.play("ev-build");
     } catch (e) {
       resultsEl.innerHTML = "";
       setError(err, e.message);
@@ -927,7 +951,7 @@ function importView() {
             ${q.description ? `<p>${esc(q.description)}</p>` : ""}
             <p class="muted">${L.words.length} kata · ${L.width}×${L.height}${OVERRIDES.filter(([k]) => q[k] != null).map(([k, label]) => ` · ${label}: ${q[k]}`).join("")}</p>
             ${L.unplaced?.length ? `<p class="warn">Tidak muat di grid dan tidak ikut disimpan: ${L.unplaced.map((u) => esc(u.answer)).join(", ")}</p>` : ""}
-            ${L.words.length ? layoutBoard(L.words, L.width, L.height, "1.35rem") : ""}` : ""}
+            ${L.words.length ? layoutBoard(L.words, L.width, L.height, 22) : ""}` : ""}
           ${r.saveError ? `<p class="error" role="alert">${esc(r.saveError)}</p>` : ""}
         </article>`;
       }).join("")}</div>

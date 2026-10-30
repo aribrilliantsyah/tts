@@ -372,3 +372,54 @@ func TestLiveRoomAndSocket(t *testing.T) {
 		t.Fatalf("host not closed: %v", err)
 	}
 }
+
+func TestPingPong(t *testing.T) {
+	h := newHarness(t)
+	a := h.admin()
+	var room struct{ Code string }
+	h.do(a, "POST", "/api/live/rooms", map[string]int64{"quiz_id": h.createQuiz(a)}, &room)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.srv.URL, "http")+"/ws/live/"+room.Code, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	conn.Write(ctx, websocket.MessageText, []byte(`{"type":"hello","role":"player","nickname":"dewi","avatar":{}}`))
+
+	// Lobby phase, no game started: the pong must still come back with t0 echoed verbatim.
+	before := time.Now().UnixMilli()
+	conn.Write(ctx, websocket.MessageText, []byte(`{"type":"ping","t0":1234.5625}`))
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m struct {
+			Type   string
+			T0     json.RawMessage
+			Server int64
+		}
+		json.Unmarshal(data, &m)
+		if m.Type == "error" {
+			t.Fatalf("ping rejected: %s", data)
+		}
+		if m.Type != "pong" {
+			continue
+		}
+		after := time.Now().UnixMilli()
+		if string(m.T0) != "1234.5625" || m.Server < before || m.Server > after {
+			t.Fatalf("pong %s, want t0 1234.5625 and server in [%d,%d]", data, before, after)
+		}
+		return
+	}
+}
+
+func TestPongIgnoresMalformed(t *testing.T) {
+	for _, in := range []string{`{"type":"ping"}`, `{"type":"ping","t0":"x"}`, `{"type":"buzz"}`, `nope`} {
+		if reply, ok := pong([]byte(in), time.Now()); ok {
+			t.Errorf("%s answered: %s", in, reply)
+		}
+	}
+}

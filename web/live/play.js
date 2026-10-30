@@ -1,5 +1,5 @@
 // Player client for a live room. Routes: #/join/<code> or #/ (enter code). Protocol: docs/spec.md.
-import { api, esc, toast, avatarImg, avatarEditor, Bells, liveSocket } from "/common.js";
+import { api, esc, toast, avatarImg, avatarEditor, Sound, liveSocket, fmtCountdown } from "/common.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $("#app");
@@ -14,10 +14,22 @@ let sock = null;
 let stopped = false; // socket intentionally closed (kicked / join failed)
 let myId = null; // from welcome
 let st = null; // latest RoomState
-let offset = 0; // server_now − Date.now()
+let heardJoin = false; // own ev-join plays once per page load, not on every reconnect
 let view = null; // key of the rendered view
 let buzzedFor = null; // clue id we already pressed BEL for (until the state moves on)
 let typed = ""; // letters typed into the empty answer tiles
+
+// Audio needs a user gesture: the first tap or key anywhere (typing the nickname, Space to buzz) unlocks it and starts decoding.
+Sound.preload([...Sound.BELLS.map((b) => b.id), "ev-join", "ev-start", "ev-clue", "ev-correct", "ev-wrong", "ev-applause", "ev-yay"]);
+Sound.bindControls($("header.top"));
+const unlockAudio = () => {
+  Sound.unlock();
+  $("#tap").classList.add("hidden");
+  document.removeEventListener("pointerdown", unlockAudio, true);
+  document.removeEventListener("keydown", unlockAudio, true);
+};
+document.addEventListener("pointerdown", unlockAudio, true);
+document.addEventListener("keydown", unlockAudio, true);
 
 window.addEventListener("hashchange", () => location.reload());
 boot();
@@ -52,17 +64,7 @@ async function boot() {
       await api(`/api/live/rooms/${code}`);
       nickname = me?.username || localStorage.getItem("tts_nickname") || "";
       avatar = window.TTSAvatar.normalize(storedAvatar() || window.TTSAvatar.random());
-      // Audio needs a user gesture; any tap or key (e.g. Space to buzz) unlocks it, not only this button.
-      const tap = $("#tap");
-      tap.classList.remove("hidden");
-      const unlock = () => {
-        Bells.unlock();
-        tap.classList.add("hidden");
-        document.removeEventListener("pointerdown", unlock, true);
-        document.removeEventListener("keydown", unlock, true);
-      };
-      document.addEventListener("pointerdown", unlock, true);
-      document.addEventListener("keydown", unlock, true);
+      $("#tap").classList.remove("hidden");
       connect();
       return;
     } catch (err) {
@@ -104,7 +106,7 @@ function renderJoin(errorMsg = "") {
   else codeInput.focus();
   $("#joinForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    Bells.unlock();
+    Sound.unlock();
     const err = $("#joinErr");
     err.textContent = "";
     const c = codeInput.value.trim();
@@ -182,16 +184,20 @@ function onMessage(msg) {
       myId = msg.you.player_id;
       nickname = msg.you.nickname;
       localStorage.setItem(tokenKey(code), msg.you.token);
+      if (!heardJoin) { heardJoin = true; Sound.play("ev-join"); }
       break;
-    case "state":
+    case "state": {
+      const prev = st;
       st = msg.state;
-      offset = st.server_now - Date.now();
+      cues(prev, st);
       render();
       break;
+    }
     case "buzz":
-      if (msg.player_id === myId) Bells.play(msg.bell);
+      if (msg.player_id === myId) Sound.play(msg.bell); // authoritative cue for our own bell; the host plays everyone's
       break;
     case "result":
+      Sound.play(msg.correct ? "ev-correct" : "ev-wrong");
       if (msg.player_id === myId) showDelta(msg);
       break;
     case "error":
@@ -213,12 +219,25 @@ function onMessage(msg) {
   }
 }
 
+// Sound cues come from diffs between consecutive snapshots, so a page load or reconnect never replays old events.
+function cues(prev, next) {
+  if (!prev) return;
+  if (prev.phase !== next.phase) {
+    if (next.phase === "playing") Sound.play("ev-start");
+    else if (next.phase === "finished") {
+      Sound.play("ev-applause");
+      const rank = next.podium?.find((e) => e.player_id === myId)?.rank;
+      if (rank && rank <= 3) Sound.play("ev-yay");
+    }
+  }
+  if (next.active && next.active.clue_id !== prev.active?.clue_id) Sound.play("ev-clue");
+}
+
 // ---------- helpers ----------
 
-const now = () => Date.now() + offset;
 const mine = () => st.players.find((p) => p.id === myId);
 const player = (id) => st.players.find((p) => p.id === id);
-const secondsLeft = (deadline) => Math.max(0, Math.ceil((deadline - now()) / 1000));
+const countdown = (deadline) => fmtCountdown(deadline - sock.serverNow());
 
 function cellsOf(c) {
   return Array.from({ length: c.length }, (_, i) =>
@@ -237,20 +256,30 @@ function ring(deadline) {
   return `<svg class="ring" viewBox="0 0 76 76" data-ring="${deadline}" aria-hidden="true">
     <circle class="bg" cx="38" cy="38" r="${RING_R}"></circle>
     <circle class="fg" cx="38" cy="38" r="${RING_R}" stroke-dasharray="${RING_C}" stroke-dashoffset="0"></circle>
-    <text x="38" y="39">${secondsLeft(deadline)}</text></svg>`;
+    <text x="38" y="39">${countdown(deadline).text}</text></svg>`;
 }
 
-setInterval(() => {
-  if (!st) return;
-  for (const el of app.querySelectorAll("[data-deadline]")) el.textContent = secondsLeft(Number(el.dataset.deadline));
-  for (const svg of app.querySelectorAll("[data-ring]")) {
-    const left = Math.max(0, Number(svg.dataset.ring) - now());
+// Countdown label and ring progress are redrawn every animation frame from the synced server clock.
+function tickFrame() {
+  if (st && sock) {
+    const t = sock.serverNow();
+    for (const el of app.querySelectorAll("[data-deadline]")) {
+      const { text } = fmtCountdown(Number(el.dataset.deadline) - t);
+      if (el.textContent !== text) el.textContent = text;
+    }
     const total = st.settings.answer_seconds * 1000;
-    svg.querySelector(".fg").setAttribute("stroke-dashoffset", String(RING_C * (1 - Math.min(1, left / total))));
-    svg.querySelector("text").textContent = Math.ceil(left / 1000);
-    svg.classList.toggle("low", left <= 3000);
+    for (const svg of app.querySelectorAll("[data-ring]")) {
+      const left = Math.max(0, Number(svg.dataset.ring) - t);
+      const { text, low } = fmtCountdown(left);
+      svg.querySelector(".fg").setAttribute("stroke-dashoffset", String(RING_C * (1 - Math.min(1, left / total))));
+      const label = svg.querySelector("text");
+      if (label.textContent !== text) label.textContent = text;
+      svg.classList.toggle("low", low);
+    }
   }
-}, 100);
+  requestAnimationFrame(tickFrame);
+}
+requestAnimationFrame(tickFrame);
 
 function showDelta(msg) {
   const el = document.createElement("div");
@@ -323,8 +352,8 @@ function skeletonLobby() {
   $("#bells").addEventListener("click", (e) => {
     const b = e.target.closest("[data-bell]");
     if (!b || b.disabled) return;
-    Bells.unlock();
-    Bells.play(b.dataset.bell);
+    Sound.unlock();
+    Sound.play(b.dataset.bell);
     if (b.dataset.bell !== mine()?.bell) sock.send({ type: "set_bell", bell: b.dataset.bell });
   });
 }
@@ -332,18 +361,18 @@ function skeletonLobby() {
 function updateLobby() {
   const you = mine();
   $("#meCard").innerHTML = `${avatarImg(you.avatar, 120, you.nickname)}<div><p class="eyebrow">Kamu</p><div class="nm">${esc(you.nickname)}</div>
-    <span class="chip mint">🔔 ${esc(Bells.label(you.bell))}</span></div>`;
+  <span class="chip mint">🔔 ${esc(Sound.label(you.bell))}</span></div>`;
   const takenBy = new Map(st.players.filter((p) => p.id !== myId).map((p) => [p.bell, p.nickname]));
   $("#bells").innerHTML = st.bells.map((id) => {
     const on = id === you.bell;
     const other = takenBy.get(id);
     return `<button type="button" class="bell-btn${on ? " on" : ""}" data-bell="${esc(id)}" ${other ? "disabled" : ""} aria-pressed="${on}">
-      <b>${esc(Bells.label(id))}</b><small>${on ? "punyamu" : other ? `dipakai ${esc(other)}` : ""}</small></button>`;
+      <b>${esc(Sound.label(id))}</b><small>${on ? "punyamu" : other ? `dipakai ${esc(other)}` : ""}</small></button>`;
   }).join("");
   const others = st.players.filter((p) => p.id !== myId);
   $("#otherCount").textContent = others.length;
   $("#others").innerHTML = others.length
-    ? others.map((p) => `<li class="${p.connected ? "" : "dim"}">${avatarImg(p.avatar, 40, p.nickname)}<span>${esc(p.nickname)}</span><span class="chip">🔔 ${esc(Bells.label(p.bell))}</span></li>`).join("")
+    ? others.map((p) => `<li class="${p.connected ? "" : "dim"}">${avatarImg(p.avatar, 40, p.nickname)}<span>${esc(p.nickname)}</span><span class="chip">🔔 ${esc(Sound.label(p.bell))}</span></li>`).join("")
     : `<li class="muted">Belum ada pemain lain.</li>`;
 }
 
@@ -378,7 +407,7 @@ function renderPlaying() {
   let action;
   if (a.state === "answering") {
     const p = player(a.answering_player);
-    action = `<button type="button" class="bel off" disabled>${esc(p?.nickname ?? "?")} sedang menjawab…${a.deadline ? `<span class="cd" data-deadline="${a.deadline}">${secondsLeft(a.deadline)}</span>` : ""}</button>`;
+    action = `<button type="button" class="bel off" disabled>${esc(p?.nickname ?? "?")} sedang menjawab…${a.deadline ? `<span class="cd" data-deadline="${a.deadline}">${countdown(a.deadline).text}</span>` : ""}</button>`;
   } else if (a.locked_out.includes(myId)) {
     action = `<button type="button" class="bel off" disabled>Kamu sudah dapat giliran di soal ini</button>`;
   } else {
@@ -390,17 +419,29 @@ function renderPlaying() {
     <section class="panel clue-card">${clueHeader(clue)}</section>
     <div class="buzz-area">${action}</div>
     <section class="panel"><h2>Skor</h2>${miniScores()}</section></div>`;
-  $("#bel")?.addEventListener("click", buzz);
+  // Buzz on pointerdown, not click: saves the finger-lift (~50–100 ms). click stays as the keyboard (Enter) path; buzz() is idempotent.
+  const bel = $("#bel");
+  bel?.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    buzz();
+  });
+  bel?.addEventListener("click", buzz);
 }
 
 function buzz() {
   const a = st?.active;
   if (!a || a.state !== "waiting" || a.locked_out.includes(myId) || buzzedFor === a.clue_id) return;
-  Bells.unlock();
+  Sound.unlock();
   buzzedFor = a.clue_id;
   sock.send({ type: "buzz" });
   const b = $("#bel");
-  if (b) { b.classList.add("pressed"); b.disabled = true; }
+  if (b) { b.classList.add("pressed"); b.disabled = true; } // optimistic: the next snapshot replaces it
+  const clueId = a.clue_id;
+  setTimeout(() => {
+    // Server ignored the buzz (late/ineligible) and nothing changed: release the button.
+    if (buzzedFor === clueId && view === `buzz:${clueId}`) { buzzedFor = null; renderPlaying(); }
+  }, 1500);
 }
 
 document.addEventListener("keydown", (e) => {
@@ -453,9 +494,12 @@ function renderAnswer() {
   input.addEventListener("focus", () => {
     $("#tiles")?.scrollIntoView({ block: "center", behavior: "smooth" });
   });
+  let sent = false;
   $("#ansForm").addEventListener("submit", (e) => {
     e.preventDefault();
+    if (sent) return;
     if (typed.length !== empties) { toast("Lengkapi semua kotak dulu."); return; }
+    sent = true; // Enter + Kirim in quick succession must not send twice
     let t = 0;
     const word = fixed.map((l) => l || typed[t++]).join("");
     sock.send({ type: "answer", text: word });

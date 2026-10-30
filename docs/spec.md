@@ -18,7 +18,7 @@ Language: all UI copy in **Bahasa Indonesia**. Module path: `tts`. Go 1.27.
 - Game ends when all clues solved/revealed or operator presses "Akhiri" → podium. Ending reveals all unsolved answers.
 - Answers **never** sent to player or main-screen clients before the clue is solved/revealed.
 - Avatars: DiceBear **Big Smile**, rendered client-side by `web/vendor/avatar.js` (`window.TTSAvatar`). Server stores the avatar object as opaque JSON (validated only: object, ≤ 512 bytes JSON).
-- Bells: player picks one in the lobby from the built-in list; each player gets a unique default; a bell taken by another player in the same room cannot be picked. Bell sound plays on the main screen and the buzzing player's laptop.
+- Bells: player picks one in the lobby from the built-in list; each player gets a unique default; a bell taken by another player in the same room cannot be picked. Bell sound plays on the main screen and the buzzing player's laptop. Every bell is a real file `web/sounds/<id>.mp3` (no synthesized fallback).
 - Fully offline: fonts, avatar lib, QR all bundled. QR PNG generated server-side.
 - In-memory game state (one goroutine per room). Server restart loses running games; final results persisted to SQLite.
 
@@ -126,10 +126,13 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
 // token from a previous `welcome` resumes the same player (score, bell, lockouts) even after refresh.
 
 // player
-{"type":"set_bell","bell":"bebek"}
+{"type":"set_bell","bell":"siuuu"}
 {"type":"set_avatar","avatar":{...}}                              // lobby only
 {"type":"buzz"}
 {"type":"answer","text":"GAJAH"}                                 // normalized server-side; length must equal clue length, else treated wrong
+
+// any client (host or player), any phase after hello — clock sync, see below
+{"type":"ping","t0":1234.5}
 
 // host
 {"type":"settings","points_correct":10,"penalty_wrong":5,"answer_seconds":10}   // lobby only
@@ -147,8 +150,9 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
 {"type":"error","message":"Nama sudah dipakai di room ini"}                         // also used for invalid actions; non-fatal
 {"type":"kicked"}                                                                      // then close
 {"type":"state","state": RoomState}       // full snapshot; sent on join and after EVERY change (rooms are small)
-{"type":"buzz","player_id":"p3","bell":"bebek"}                 // fire-and-forget cue to play the sound immediately
+{"type":"buzz","player_id":"p3","bell":"siuuu"}                 // fire-and-forget cue to play the sound immediately
 {"type":"result","player_id":"p3","correct":true,"clue_id":"3-down","delta":10}     // for animations
+{"type":"pong","t0":1234.5,"server":1793246880461}               // reply to `ping`: t0 echoed verbatim, server = unix ms when the server read the ping
 ```
 
 `RoomState` (identical shape for host and players, **answers only for solved/revealed clues**):
@@ -163,15 +167,14 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
                     "answer":"HARIMAU"|null, "solved_by":"p3"|null}]},
   "letters":{"0,3":"H"},              // all letters of solved/revealed clues (crossings prefilled for players)
   "settings":{"points_correct":10,"penalty_wrong":5,"answer_seconds":10},
-  "players":[{"id":"p3","nickname":"dewi","avatar":{...},"bell":"bebek","score":10,
+  "players":[{"id":"p3","nickname":"dewi","avatar":{...},"bell":"siuuu","score":10,
               "correct":1,"wrong":0,"connected":true,"is_guest":true}],
-  "bells":["bebek","gong",...],       // full built-in list, order fixed
+  "bells":["siuuu","fahhh",...],      // full built-in list, order fixed
   "active": null | {
      "clue_id":"3-down",
      "state":"waiting" | "answering",
      "answering_player":"p3"|null,
-     "deadline":1793246890461|null,    // unix ms; client computes countdown with server_now offset
-     "locked_out":["p1"],              // already had a turn on this clue
+     "deadline":1793246890461|null,    // unix ms; client compares against its synced server clock (see Clock sync)
   },
   "last_outcome": null | {"clue_id":"3-down","kind":"solved"|"exhausted"|"skipped","player_id":"p3"|null,"answer":"GAJAH"|null},
   "podium": null | [{"player_id":"p3","nickname":"dewi","avatar":{...},"score":30,"rank":1}],  // finished only, full ranking
@@ -180,6 +183,11 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
 ```
 
 `clue.status` "open" = never opened or still pickable. Players never see `answer` unless status is solved/revealed.
+
+### Clock sync (`ping` / `pong`)
+`ping` is answered in the connection's read path, never through the room goroutine, so it cannot queue behind game events. Malformed pings (missing or non-numeric `t0`) are ignored.
+
+Client (`liveSocket` in `web/common.js`): clock = `performance.timeOrigin + performance.now()` (monotonic). After each connect send 5 pings 100 ms apart, then one every 10 s. Per sample: `rtt = t1 − t0`, `offset = server − (t0 + rtt/2)`. Keep the last 8 samples; use the offset of the one with the lowest RTT. `serverNow()` = client clock + offset (before the first pong: from the first snapshot's `server_now`, naive). Countdowns render on `requestAnimationFrame`: whole seconds (rounded up) above 3 s, tenths in the last 3 s.
 
 ### Engine rules (internal/live)
 - One goroutine per room owns all state; inputs arrive on a channel (client msgs, joins/leaves, timer fires). Clock injected (`Now func() time.Time` + `AfterFunc`) so tests run without sleeping.
@@ -194,7 +202,7 @@ JSON text frames `{"type": "...", ...}`. First client message must be `hello` wi
 - Phase transitions to finished automatically when every clue is solved or revealed.
 - Host disconnect: room keeps running; host can reconnect (any admin). Room is deleted 30 min after finishing, or 2 h after last activity.
 - Max 50 players per room.
-- Bells: built-in ids `["ding","klakson","terompet","bebek","gong","laser","kucing","drum","peluit","bel-sepeda","pop","koin"]`. New player gets first free id in list order. `set_bell` to a taken id → error `Bel sudah dipakai pemain lain`.
+- Bells: built-in ids `["siuuu","fahhh","arghhh","ack","wow","saiyan","bong","setrum","kucing-nangis","dexter","crow-zero","day-in-life"]` (files `web/sounds/<id>.mp3`). New player gets first free id in list order. `set_bell` to a taken id → error `Bel sudah dipakai pemain lain`.
 
 ## Markdown import format
 
@@ -222,10 +230,13 @@ batas_waktu: 10
 
 ## Frontend
 
-Plain HTML/CSS/JS, no build step, no CDN. Shared files (DONE, do not fork): `web/theme.css` (tokens, ubin/tile, buttons, chips, panels), `web/common.js` (ES module: `api`, `esc`, `toast`, `formatDuration`, `formatDate`, `avatarImg`, `Bells`), `web/vendor/avatar.js`, `web/fonts/*`.
+Plain HTML/CSS/JS, no build step, no CDN. Shared files (DONE, do not fork): `web/theme.css` (tokens, ubin/tile, buttons, chips, panels), `web/common.js` (ES module: `api`, `esc`, `toast`, `formatDuration`, `formatDate`, `avatarImg`, `Sound`, `liveSocket`, `fmtCountdown`, board pixel helpers), `web/vendor/avatar.js`, `web/fonts/*`.
 
 Pages (hash routing within each HTML):
 - `web/index.html` + `web/app.js` — login/register, solo list/play/leaderboard, admin (quizzes, editor, import, settings, users, live history), profile avatar editor. Admin "Mulai live" on a quiz → POST room → open `/host.html#<code>` in a new tab.
 - `web/host.html` + `web/live/host.js` — main screen (projected): lobby (QR, code, URL, joined players with avatars + bells, settings adjust, Start) → playing (big grid, clue lists clickable, active clue panel with buzz state + countdown, scoreboard, skip/reveal/end) → podium.
 - `web/play.html` + `web/live/play.js` — player: join form (code, nickname for guests, avatar editor, bell picker with preview) → lobby wait → big BEL button (Space key too) + active clue + status → answer tiles (crossing letters prefilled, type to fill empties, Enter submits, countdown) → podium/own rank.
 - Visual language: approved "fun" mockup — sky background, navy 3px outlines, tile shadows `0 4px 0 navy`, sun/tomato/mint accents, Bagel Fat One display + Gabarito body. Respect `prefers-reduced-motion`.
+- Sound (`Sound` in `web/common.js`, Web Audio, decoded buffers from `web/sounds/`): bells + `ev-*` effects on host/players/solo/admin, music (`mu-elevator` lobby, `mu-carefree` playing, ducked to 25% while a clue is active, `mu-credits` after `ev-winner` → `ev-applause`) on the host screen only, 400 ms crossfades. Cues are derived from state diffs, so reload/reconnect never replays old events. Volume/mute persisted in `localStorage` (`tts_vol_sfx`, `tts_vol_music`, `tts_mute`). Nothing plays before a user gesture.
+- Buzz is sent on `pointerdown` (and Space `keydown`); the BEL button shows pressed immediately and is released if the server did not accept the buzz.
+- Crossword tiles use an integer `--cell` (computed in JS, snapped to device pixels), integer `--fs`/`--nfs` font sizes and a snapped board origin, so tile edges never fall on fractional pixels.
