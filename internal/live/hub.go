@@ -25,7 +25,9 @@ func NewHub(clock Clock, persist Persister) *Hub {
 }
 
 // Create opens a room for the quiz. The words are validated with crossword.Build.
+// Words are automatically oriented landscape (width >= height) for TV and projector displays.
 func (h *Hub) Create(cfg Config) (*Room, error) {
+	cfg.Words = crossword.EnsureLandscape(cfg.Words)
 	g, err := crossword.Build(cfg.Words)
 	if err != nil {
 		return nil, fmt.Errorf("build quiz grid: %w", err)

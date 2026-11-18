@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -56,20 +57,30 @@ func run() error {
 	}
 
 	hub := live.NewHub(live.RealClock, st)
-	srv := &http.Server{
-		Addr:              ":" + strconv.Itoa(port),
-		Handler:           webapi.New(webapi.Config{Store: st, Hub: hub, Static: web.FS, Port: port, Now: time.Now}),
-		ReadHeaderTimeout: 10 * time.Second,
+	ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
 	}
+	defer ln.Close()
+
+	tlsConfig, err := webapi.GenerateSelfSignedCert(webapi.LANIPs(), nil)
+	if err != nil {
+		return fmt.Errorf("generate cert: %w", err)
+	}
+
+	handler := webapi.New(webapi.Config{Store: st, Hub: hub, Static: web.FS, Port: port, Now: time.Now})
+	dualSrv := webapi.NewDualServer(ln, handler, tlsConfig)
+
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
+	go func() { errc <- dualSrv.Serve() }()
 
 	urls := webapi.LANURLs(port)
 	if len(urls) == 0 {
-		slog.Info("no LAN IPv4 address found", "url", "http://localhost:"+strconv.Itoa(port))
+		slog.Info("listening", "http", "http://localhost:"+strconv.Itoa(port), "https", "https://localhost:"+strconv.Itoa(port))
 	}
 	for _, u := range urls {
-		slog.Info("listening", "url", u)
+		httpsU := strings.Replace(u, "http://", "https://", 1)
+		slog.Info("listening", "http", u, "https", httpsU)
 	}
 
 	select {
@@ -81,7 +92,7 @@ func run() error {
 	hub.Close() // ends every live socket so Shutdown does not wait on them
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := dualSrv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
 	}
 	return nil

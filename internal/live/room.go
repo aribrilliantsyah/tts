@@ -95,6 +95,11 @@ type clue struct {
 
 func (c *clue) done() bool { return c.status == StatusSolved || c.status == StatusRevealed }
 
+type attempt struct {
+	playerID string
+	guess    string
+}
+
 type activeClue struct {
 	clue      *clue
 	answering *player
@@ -102,6 +107,7 @@ type activeClue struct {
 	deadline  time.Time
 	timer     Timer
 	locked    []string
+	attempts  []attempt
 }
 
 func (a *activeClue) isLocked(id string) bool { return slices.Contains(a.locked, id) }
@@ -127,6 +133,7 @@ type Room struct {
 	byID         map[string]*clue
 	players      []*player
 	clients      map[*Client]*player // nil value = host
+	displays     map[*Client]struct{}
 	nextID       int
 	active       *activeClue
 	gen          int
@@ -143,7 +150,7 @@ func newRoom(code string, cfg Config, g crossword.Grid, clock Clock, persist Per
 		code: code, cfg: cfg, clock: clock, persist: persist, hub: hub,
 		in: make(chan func()), done: make(chan struct{}),
 		phase: PhaseLobby, settings: cfg.Settings, cells: PublicCells(g), width: g.Width, height: g.Height,
-		byID: map[string]*clue{}, clients: map[*Client]*player{},
+		byID: map[string]*clue{}, clients: map[*Client]*player{}, displays: map[*Client]struct{}{},
 		lastActivity: clock.Now(),
 	}
 	r.phaseV.Store(new(PhaseLobby))
@@ -227,6 +234,9 @@ func (r *Room) shutdown() {
 	for c := range r.clients {
 		r.closeClient(c)
 	}
+	for c := range r.displays {
+		r.closeClient(c)
+	}
 	r.hub.remove(r)
 	r.stopped = true
 }
@@ -268,6 +278,9 @@ func (r *Room) broadcast(v any) {
 		return
 	}
 	for c := range r.clients {
+		r.sendRaw(c, b)
+	}
+	for c := range r.displays {
 		r.sendRaw(c, b)
 	}
 }
@@ -313,6 +326,14 @@ func (r *Room) snapshot() *RoomState {
 		if sa.LockedOut == nil {
 			sa.LockedOut = []string{}
 		}
+		if a.attempts != nil {
+			sa.Attempts = make([]Attempt, len(a.attempts))
+			for i, att := range a.attempts {
+				sa.Attempts[i] = Attempt{PlayerID: att.playerID, Guess: att.guess}
+			}
+		} else {
+			sa.Attempts = []Attempt{}
+		}
 		if a.answering != nil {
 			sa.State = "answering"
 			sa.AnsweringPlayer = new(a.answering.id)
@@ -329,12 +350,18 @@ func (r *Room) join(c *Client, h Hello, u *store.User) {
 	if _, dup := r.clients[c]; dup || c.closed {
 		return
 	}
+	if _, dup := r.displays[c]; dup || c.closed {
+		return
+	}
 	r.touch()
 	reject := func(msg string) {
 		r.sendError(c, msg)
 		r.closeClient(c)
 	}
 	switch h.Role {
+	case "tv":
+		r.displays[c] = struct{}{}
+		r.send(c, stateMsg{Type: "state", State: r.snapshot()})
 	case "host":
 		if u == nil || !u.IsAdmin() {
 			reject("Khusus admin")
@@ -342,6 +369,11 @@ func (r *Room) join(c *Client, h Hello, u *store.User) {
 		}
 		r.clients[c] = nil
 		r.send(c, stateMsg{Type: "state", State: r.snapshot()})
+		answers := make(map[string]string, len(r.clues))
+		for _, cl := range r.clues {
+			answers[cl.pub.ID] = cl.answer
+		}
+		r.send(c, hostAnswersMsg{Type: "host_answers", Answers: answers})
 	case "player":
 		p, msg := r.admit(h, u)
 		if p == nil {
@@ -426,6 +458,12 @@ func (r *Room) defaultBell() string {
 }
 
 func (r *Room) leave(c *Client) {
+	if _, isDisplay := r.displays[c]; isDisplay {
+		delete(r.displays, c)
+		r.closeClient(c)
+		r.touch()
+		return
+	}
 	p, ok := r.clients[c]
 	r.closeClient(c)
 	if !ok {
@@ -439,7 +477,7 @@ func (r *Room) leave(c *Client) {
 	p.conn = nil
 	if a := r.active; a != nil && r.phase == PhasePlaying {
 		if a.answering == p {
-			r.wrong(p)
+			r.wrong(p, "")
 			r.settle()
 			return
 		}
@@ -455,6 +493,11 @@ func (r *Room) leave(c *Client) {
 // --- messages ---
 
 func (r *Room) message(c *Client, m Msg) {
+	if _, isDisplay := r.displays[c]; isDisplay {
+		r.touch()
+		r.sendError(c, "Tampilan TV tidak dapat mengirim aksi")
+		return
+	}
 	p, ok := r.clients[c]
 	if !ok {
 		return
@@ -625,10 +668,11 @@ func (r *Room) playerMsg(p *player, m Msg) string {
 		if r.phase != PhasePlaying || a == nil || a.answering != p {
 			return "Bukan giliranmu menjawab"
 		}
-		if crossword.Normalize(m.Text) == a.clue.answer {
+		guess := crossword.Normalize(m.Text)
+		if guess == a.clue.answer {
 			r.correct(p)
 		} else {
-			r.wrong(p)
+			r.wrong(p, guess)
 		}
 		r.settle()
 		return ""
@@ -653,7 +697,7 @@ func (r *Room) stopTimer() {
 func (r *Room) timeout(gen int) {
 	if a := r.active; a != nil && a.answering != nil && gen == r.gen {
 		r.touch()
-		r.wrong(a.answering)
+		r.wrong(a.answering, "")
 		r.settle()
 	}
 }
@@ -672,19 +716,20 @@ func (r *Room) correct(p *player) {
 	a.clue.status, a.clue.solvedBy = StatusSolved, p.id
 	r.last = &Outcome{ClueID: a.clue.pub.ID, Kind: OutcomeSolved, PlayerID: new(p.id), Answer: new(a.clue.answer)}
 	r.active = nil
-	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: true, ClueID: a.clue.pub.ID, Delta: pts})
+	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: true, ClueID: a.clue.pub.ID, Delta: pts, Guess: a.clue.answer})
 }
 
 // wrong penalises p, locks them out and reopens the buzzer or exhausts the clue.
-func (r *Room) wrong(p *player) {
+func (r *Room) wrong(p *player, guess string) {
 	a := r.active
 	r.stopTimer()
 	pen := r.settings.PenaltyWrong
 	p.score -= pen
 	p.wrong++
 	a.locked = append(a.locked, p.id)
+	a.attempts = append(a.attempts, attempt{playerID: p.id, guess: guess})
 	a.answering = nil
-	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: false, ClueID: a.clue.pub.ID, Delta: -pen})
+	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: false, ClueID: a.clue.pub.ID, Delta: -pen, Guess: guess})
 	if !r.anyEligible() {
 		r.exhaust()
 	}
@@ -694,7 +739,14 @@ func (r *Room) exhaust() {
 	c := r.active.clue
 	r.stopTimer()
 	c.status = StatusRevealed
-	r.last = &Outcome{ClueID: c.pub.ID, Kind: OutcomeExhausted, Answer: new(c.answer)}
+	var atts []Attempt
+	if r.active != nil && r.active.attempts != nil {
+		atts = make([]Attempt, len(r.active.attempts))
+		for i, a := range r.active.attempts {
+			atts[i] = Attempt{PlayerID: a.playerID, Guess: a.guess}
+		}
+	}
+	r.last = &Outcome{ClueID: c.pub.ID, Kind: OutcomeExhausted, Answer: new(c.answer), Attempts: atts}
 	r.active = nil
 }
 

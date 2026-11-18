@@ -200,18 +200,53 @@ func LANURLs(port int) []string {
 	return out
 }
 
-// urls returns the LAN URLs, or the localhost URL when there is no LAN address.
-func (s *Server) urls() []string {
-	if u := LANURLs(s.port); len(u) > 0 {
-		return u
+// LANIPs returns all detected non-loopback IPv4 addresses.
+func LANIPs() []net.IP {
+	var ips []net.IP
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
 	}
-	return []string{"http://localhost:" + strconv.Itoa(s.port)}
+	for _, ifc := range ifaces {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipn, isNet := a.(*net.IPNet); isNet {
+				if ip4 := ipn.IP.To4(); ip4 != nil && !ip4.IsLoopback() {
+					ips = append(ips, ip4)
+				}
+			}
+		}
+	}
+	return ips
+}
+
+// urls returns the LAN URLs, or the localhost URL when there is no LAN address.
+func (s *Server) urls(scheme string) []string {
+	lan := LANURLs(s.port)
+	if len(lan) == 0 {
+		return []string{scheme + "://localhost:" + strconv.Itoa(s.port)}
+	}
+	out := make([]string, len(lan))
+	for i, u := range lan {
+		out[i] = strings.Replace(u, "http://", scheme+"://", 1)
+	}
+	return out
 }
 
 func (s *Server) serverInfo(w http.ResponseWriter, r *http.Request) {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
 	writeJSON(w, http.StatusOK, struct {
 		URLs []string `json:"urls"`
-	}{s.urls()})
+	}{s.urls(scheme)})
 }
 
 // --- static files ---

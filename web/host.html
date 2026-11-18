@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Layar Utama · TTS Kuis</title>
+  <title>Kontrol Host · TTS Kuis</title>
   <link rel="icon" href="/icons/favicon.ico" sizes="48x48">
   <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -14,12 +14,13 @@
   <script src="/vendor/avatar.js"></script>
   <script type="module" src="/live/host.js"></script>
 </head>
-<body class="live host">
+<body class="live host controller">
   <div id="banner" class="banner hidden" role="alert">Menyambung ulang…</div>
   <header class="top">
     <a class="logo" href="/#/admin" aria-label="TTS Kuis, kembali ke admin"><span>T</span><span>T</span><span>S</span></a>
-    <span class="title" id="title">Live</span>
+    <span class="title" id="title">Kontrol Host</span>
     <span class="spacer"></span>
+    <a id="openTvBtn" class="btn sun open-tv-btn" target="_blank" href="#">📺 Buka TV</a>
     <span class="chip sun" id="codeChip"></span>
   </header>
   <main id="app"><p class="muted">Memuat…</p></main>
@@ -27,9 +28,11 @@
     <button type="button" class="btn go" id="unlockBtn">Aktifkan suara</button>
   </div>
   <div id="soundCtl" class="sound-ctl" role="group" aria-label="Pengaturan suara">
-    <button type="button" class="sound-mute" data-sound-mute></button>
-    <label>Efek <input type="range" min="0" max="1" step="0.05" data-sound-vol="sfx" aria-label="Volume efek"></label>
-    <label>Musik <input type="range" min="0" max="1" step="0.05" data-sound-vol="music" aria-label="Volume musik"></label>
+    <button type="button" class="sound-mute" data-sound-mute aria-label="Nyalakan atau bisukan suara"></button>
+    <div class="sound-sliders">
+      <label>Efek <input type="range" min="0" max="1" step="0.05" data-sound-vol="sfx" aria-label="Volume efek"></label>
+      <label>Musik <input type="range" min="0" max="1" step="0.05" data-sound-vol="music" aria-label="Volume musik"></label>
+    </div>
   </div>
   <div id="toast" role="status"></div>
 </body>

@@ -330,7 +330,8 @@ func (s *Server) readQuiz(w http.ResponseWriter, r *http.Request) (store.Quiz, b
 	if err := q.Overrides.Validate(); err != nil {
 		return bad(err.Error())
 	}
-	g, err := crossword.Build(in.Layout.Words)
+	words := crossword.EnsureLandscape(in.Layout.Words)
+	g, err := crossword.Build(words)
 	if err != nil {
 		return bad(err.Error())
 	}

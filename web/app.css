@@ -65,11 +65,12 @@ code { font: 600 .9em ui-monospace, monospace; background: var(--sky); padding: 
 @media (max-width: 560px) {
   .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; }
   .toolbar .spacer { display: none; }
-  .toolbar #check { width: 100%; margin-top: .2rem; min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+  .toolbar #soloVoice, .toolbar #check { flex: 1 1 calc(50% - .5rem); margin-top: .2rem; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; }
 }
 .bubble { position: relative; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; background: var(--navy); color: #fff; border-radius: 16px; padding: .75rem 1rem; margin: 0 0 1.3rem; font-size: 1.05rem; box-shadow: 0 4px 0 rgba(28, 37, 65, .35); min-height: 3.2rem; }
 .bubble::after { content: ""; position: absolute; left: 2rem; bottom: -12px; border: 12px solid transparent; border-bottom: 0; border-top-color: var(--navy); }
 .bubble .len { opacity: .7; }
+.solo-mic { margin-left: auto; padding: .2rem .55rem; font-size: 1.1rem; min-height: 32px; line-height: 1; }
 .badge { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border: 2.5px solid var(--navy); border-radius: 8px; font: 800 1rem/1 var(--body); color: var(--navy); flex: none; }
 .badge.across { background: var(--sun); }
 .badge.down { background: var(--mint); }
@@ -131,6 +132,27 @@ tr.you td { background: var(--sun-soft) !important; font-weight: 700; }
 .board.preview { gap: 3px; padding: 6px; }
 
 /* Import */
+.import-tabs { display: flex; gap: .5rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.import-tabs .btn-tab { font-weight: 800; font-size: 1rem; padding: .5rem 1.15rem; border: 2.5px solid var(--navy); border-radius: 999px; background: var(--paper); cursor: pointer; box-shadow: var(--lift); color: var(--navy); transition: transform .08s, box-shadow .08s, background .15s; }
+.import-tabs .btn-tab:hover:not(.on) { background: var(--sun-soft); }
+.import-tabs .btn-tab:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--navy); }
+.import-tabs .btn-tab.on { background: var(--sun); box-shadow: 0 3px 0 var(--navy); }
+
+.file-options { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: -.4rem 0 1.2rem; padding: 0 .2rem; }
+.file-options .check { margin: 0; }
+
+.text-import-box { margin-bottom: 1.2rem; display: grid; gap: .75rem; }
+.text-import-head { align-items: center; }
+.text-import-head label { font-size: 1.05rem; }
+.text-import-area { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .95rem; line-height: 1.5; resize: vertical; min-height: 240px; tab-size: 2; }
+.text-import-actions { align-items: center; margin-top: .4rem; }
+.text-import-actions .check { margin: 0; }
+@media (max-width: 560px) {
+  .text-import-actions { flex-direction: column; align-items: stretch; gap: .6rem; }
+  .text-import-actions .check { margin-bottom: .2rem; }
+  .text-import-actions .btn { width: 100%; text-align: center; }
+}
+
 .drop { display: grid; gap: .3rem; place-items: center; text-align: center; padding: 2rem 1rem; border-style: dashed; cursor: pointer; margin: 0 0 1.2rem; font-weight: 400; }
 .drop.over, .drop:focus-within { background: var(--sun-soft); }
 .format { margin-bottom: 1.2rem; }

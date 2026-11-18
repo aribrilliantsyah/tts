@@ -92,3 +92,29 @@ func TestBuildRejectsConflictsAndBadInput(t *testing.T) {
 		}
 	}
 }
+
+func TestTransposeAndEnsureLandscape(t *testing.T) {
+	tall := []PlacedWord{
+		{Answer: "CAT", Clue: "feline", Row: 0, Col: 0, Direction: Across},
+		{Answer: "CARTOON", Clue: "animation", Row: 0, Col: 0, Direction: Down},
+	}
+	g, err := Build(tall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Width != 3 || g.Height != 7 {
+		t.Fatalf("expected 3x7, got %dx%d", g.Width, g.Height)
+	}
+
+	wide := EnsureLandscape(tall)
+	gw, err := Build(wide)
+	if err != nil {
+		t.Fatalf("build transposed: %v", err)
+	}
+	if gw.Width != 7 || gw.Height != 3 {
+		t.Fatalf("expected 7x3 landscape, got %dx%d", gw.Width, gw.Height)
+	}
+	if gw.Words[0].Direction != Across || gw.Words[0].Answer != "CARTOON" {
+		t.Fatalf("expected CARTOON across, got %v", gw.Words[0])
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"tts/internal/auth"
 	"tts/internal/live"
 	"tts/internal/store"
+	"tts/web"
 )
 
 type harness struct {
@@ -423,3 +424,55 @@ func TestPongIgnoresMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestTVScreenAssets(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	hub := live.NewHub(live.RealClock, st)
+	defer hub.Close()
+	srv := httptest.NewServer(New(Config{Store: st, Hub: hub, Static: web.FS, Port: 3000, Now: time.Now}))
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "/tv.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for /tv.html, got %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "/live/tv.js") {
+		t.Fatalf("expected /tv.html to load /live/tv.js, got %s", string(body))
+	}
+}
+
+func TestHostScreenLinkToTV(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	hub := live.NewHub(live.RealClock, st)
+	defer hub.Close()
+	srv := httptest.NewServer(New(Config{Store: st, Hub: hub, Static: web.FS, Port: 3000, Now: time.Now}))
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "/host.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for /host.html, got %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "openTvBtn") {
+		t.Fatalf("expected /host.html to contain openTvBtn link, got %s", string(body))
+	}
+}
+
+

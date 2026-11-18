@@ -1,5 +1,6 @@
 // TTS Kuis main SPA: auth, solo play, leaderboard, profile, admin. Hash routing.
 import { esc, api, toast, formatDuration, formatDate, avatarImg, avatarEditor, Sound, boardStyle, setBoardCell, fitCell, snapBoard } from "/common.js";
+import { isSpeechRecognitionSupported, createVoiceRecognizer, parseVoiceAnswer } from "/voice.js";
 
 const app = document.getElementById("app");
 const nav = document.getElementById("nav");
@@ -226,6 +227,7 @@ async function playView(id) {
           <span class="chip">Waktu <b id="timer">–</b></span>
           <span class="chip" id="progress"></span>
           <span class="spacer"></span>
+          <button class="btn voice-btn small" id="soloVoice" type="button" title="Jawab petunjuk ini dengan suara (Voice to Text)">🎙️ Bicara</button>
           <button class="btn mint" id="check" type="button">Periksa jawaban</button>
         </div>
         <div class="bubble" id="current" aria-live="polite"></div>
@@ -294,6 +296,104 @@ async function playView(id) {
   const activeClue = () =>
     clues.find((c) => c.direction === dir && c.keys.includes(focus)) ?? clues.find((c) => c.keys.includes(focus));
 
+  const supported = isSpeechRecognitionSupported();
+  const voiceBtn = document.getElementById("soloVoice");
+
+  const soloRecognizer = createVoiceRecognizer({
+    lang: "id-ID",
+    onStart: () => {
+      voiceBtn?.classList.add("listening");
+      if (voiceBtn) voiceBtn.innerHTML = "🔴 Mendengarkan…";
+      const bMic = document.getElementById("bubbleVoice");
+      if (bMic) { bMic.classList.add("listening"); bMic.textContent = "🔴"; }
+    },
+    onInterim: (interim) => {
+      const clue = activeClue();
+      const fixed = clue.keys.map((k) => cells[k] || "");
+      const empties = clue.length - fixed.filter(Boolean).length;
+      const res = parseVoiceAnswer(interim, clue.length, fixed, empties);
+      if (res && res.candidate) {
+        const cand = res.candidate.length === clue.length ? res.candidate : res.typed;
+        let t = 0;
+        for (let i = 0; i < clue.keys.length; i++) {
+          const k = clue.keys[i];
+          const ch = cand.length === clue.length ? cand[i] : (cells[k] || cand[t++] || "");
+          if (ch) {
+            cells[k] = ch;
+            wrong.delete(k);
+          }
+        }
+        paint();
+      }
+    },
+    onResult: ({ transcript, isFinal }) => {
+      const clue = activeClue();
+      const fixed = clue.keys.map((k) => cells[k] || "");
+      const empties = clue.length - fixed.filter(Boolean).length;
+      const res = parseVoiceAnswer(transcript, clue.length, fixed, empties);
+      if (res && res.candidate) {
+        const cand = res.candidate.length === clue.length ? res.candidate : res.typed;
+        let t = 0;
+        for (let i = 0; i < clue.keys.length; i++) {
+          const k = clue.keys[i];
+          const ch = cand.length === clue.length ? cand[i] : (cells[k] || cand[t++] || "");
+          if (ch) {
+            cells[k] = ch;
+            wrong.delete(k);
+            const tile = inputs.get(k)?.parentElement;
+            if (tile && isFinal) {
+              tile.classList.remove("pop");
+              void tile.offsetWidth;
+              tile.classList.add("pop");
+            }
+          }
+        }
+        scheduleSave();
+        paint();
+        if (isFinal) {
+          toast(`✓ Terisi: "${cand}"`);
+          jumpClue(1);
+          paint();
+        }
+      } else if (isFinal && transcript) {
+        toast(`Mendengar: "${transcript}" (tidak pas dengan ${clue.length} huruf)`);
+      }
+    },
+    onError: (msg) => {
+      toast(msg);
+    },
+    onEnd: () => {
+      voiceBtn?.classList.remove("listening");
+      if (voiceBtn) voiceBtn.innerHTML = "🎙️ Bicara";
+      const bMic = document.getElementById("bubbleVoice");
+      if (bMic) { bMic.classList.remove("listening"); bMic.textContent = "🎙️"; }
+    }
+  });
+
+  const toggleVoice = () => {
+    if (completedAt) {
+      toast("Teka-teki sudah selesai!");
+      return;
+    }
+    if (!supported) {
+      toast("Browser kamu belum mendukung voice-to-text.");
+      return;
+    }
+    if (soloRecognizer.isListening()) {
+      soloRecognizer.stop();
+    } else {
+      soloRecognizer.start();
+    }
+  };
+
+  voiceBtn?.addEventListener("click", toggleVoice);
+  document.getElementById("current").addEventListener("click", (e) => {
+    if (e.target.closest("#bubbleVoice")) {
+      e.stopPropagation();
+      toggleVoice();
+    }
+  });
+
   function paint() {
     const clue = activeClue();
     dir = clue.direction;
@@ -310,8 +410,9 @@ async function playView(id) {
       if (cells[key]) filled++;
     }
     document.getElementById("progress").textContent = `${filled}/${inputs.size} terisi`;
+    const isListening = soloRecognizer?.isListening?.();
     document.getElementById("current").innerHTML =
-      `<span class="badge ${clue.direction}">${ARROW[clue.direction]}</span><b>${clue.number} ${DIR_LABEL[clue.direction]}</b><span>${esc(clue.clue)} <span class="len">(${clue.length})</span></span>`;
+      `<span class="badge ${clue.direction}">${ARROW[clue.direction]}</span><b>${clue.number} ${DIR_LABEL[clue.direction]}</b><span>${esc(clue.clue)} <span class="len">(${clue.length})</span></span><span class="spacer"></span><button type="button" class="btn voice-btn small solo-mic${isListening ? " listening" : ""}" id="bubbleVoice" title="Jawab petunjuk ini dengan suara" aria-label="Bicara untuk menjawab">${isListening ? "🔴" : "🎙️"}</button>`;
     for (const [li, c] of clueItems) {
       li.classList.toggle("on", c === clue);
       li.classList.toggle("filled", c.keys.every((k) => cells[k]));
@@ -471,6 +572,7 @@ async function playView(id) {
   const timer = setInterval(tick, 1000);
   tick();
   cleanup = () => {
+    soloRecognizer.abort();
     clearInterval(timer);
     window.removeEventListener("resize", sizeBoard);
     boardWatch.disconnect();
@@ -577,7 +679,7 @@ async function startLive(quizId, btn, errEl) {
     const url = `/host.html#${code}`;
     if (win) win.location.href = url;
     else window.open(url);
-    toast(`Room ${code} dibuka di tab baru`);
+    toast(`Room ${code} dibuka di Kontrol Host. Klik "📺 Buka TV" untuk proyektor.`);
   } catch (e) {
     win?.close();
     setError(errEl, e.message);
@@ -860,55 +962,142 @@ async function editorView(id) {
 // ---------- Admin: import ----------
 const MD_EXAMPLE = `---
 judul: Kebun Binatang
-deskripsi: 5 hewan bersembunyi di grid
+deskripsi: Hewan-hewan bersembunyi di grid kata
 poin_benar: 10
 penalti_salah: 5
-batas_waktu: 10
+batas_waktu: 15
 ---
 
 - HARIMAU: Raja hutan yang belang
-- KUDA: Ditunggangi joki di pacuan`;
+- KUDA: Ditunggangi joki di pacuan
+- GAJAH: Hewan mamalia besar berbelalai
+- RUSA: Hewan bertanduk indah pemakan rumput`;
+
+function splitQuizzesText(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  // Split when a new quiz front matter starts with "---" and contains "judul:"
+  const chunks = trimmed.split(/\n+(?=---\s*\r?\n\s*judul\s*:)/i);
+  return chunks.map((c) => c.trim()).filter(Boolean);
+}
+
+function getTitleFromMarkdown(chunk, fallbackIndex) {
+  const m = chunk.match(/^\s*judul\s*:\s*(.+)$/im);
+  if (m && m[1].trim()) {
+    const raw = m[1].trim().replace(/[\\/:*?"<>|]/g, "_");
+    return raw.endsWith(".md") ? raw : `${raw}.md`;
+  }
+  return `kuis-${fallbackIndex}.md`;
+}
 
 function importView() {
   document.title = "Impor .md · TTS Kuis";
   let results = [];
+  let currentMode = "file";
+
   app.innerHTML = `
     ${adminTabs("import")}
     <div class="page-head">
       <h1>Impor kuis dari .md</h1>
-      <p class="sub">Satu file satu kuis. Periksa hasilnya dulu, lalu pilih file yang mau disimpan.</p>
+      <p class="sub">Pilih file .md atau tempel teks Markdown langsung untuk diimpor ke dalam kuis.</p>
     </div>
-    <label class="drop panel" id="drop" for="files">
-      <b>Seret file .md ke sini</b>
-      <span class="muted">atau klik untuk memilih (maks. 20 file, masing-masing ≤ 64 KB)</span>
-      <input id="files" type="file" accept=".md,text/markdown" multiple class="sr">
-    </label>
+
+    <div class="import-tabs" role="tablist" aria-label="Metode impor">
+      <button type="button" class="btn-tab on" id="tab-file" role="tab" aria-selected="true" aria-controls="panel-file">📁 Unggah File (.md)</button>
+      <button type="button" class="btn-tab" id="tab-text" role="tab" aria-selected="false" aria-controls="panel-text">📝 Tempel Teks (.md)</button>
+    </div>
+
+    <div id="panel-file" class="import-panel" role="tabpanel">
+      <label class="drop panel" id="drop" for="files">
+        <b>Seret file .md ke sini</b>
+        <span class="muted">atau klik untuk memilih (maks. 20 file, masing-masing ≤ 64 KB)</span>
+        <input id="files" type="file" accept=".md,text/markdown" multiple class="sr">
+      </label>
+      <div class="file-options row">
+        <label class="check"><input type="checkbox" id="file-auto-save"> Langsung simpan otomatis jika valid</label>
+        <label class="check"><input type="checkbox" id="file-pub"> Terbitkan langsung untuk mode solo</label>
+      </div>
+    </div>
+
+    <div id="panel-text" class="import-panel hidden" role="tabpanel">
+      <div class="panel text-import-box">
+        <div class="row text-import-head">
+          <label for="paste-text"><b>Tempel isi Markdown kuis:</b></label>
+          <span class="spacer"></span>
+          <button type="button" class="btn small" id="btn-sample">📋 Gunakan Contoh</button>
+          <button type="button" class="btn small" id="btn-clear">Kosongkan</button>
+        </div>
+        <textarea id="paste-text" class="field text-import-area" rows="12" spellcheck="false" placeholder="---&#10;judul: Nama Kuis&#10;deskripsi: Keterangan (opsional)&#10;poin_benar: 10&#10;penalti_salah: 5&#10;batas_waktu: 15&#10;---&#10;&#10;- HARIMAU: Raja hutan yang belang&#10;- KUDA: Ditunggangi joki di pacuan&#10;- GAJAH: Hewan mamalia besar berbelalai&#10;- RUSA: Hewan bertanduk indah pemakan rumput"></textarea>
+        <div class="row text-import-actions">
+          <label class="check"><input type="checkbox" id="text-pub"> Terbitkan langsung untuk mode solo</label>
+          <span class="spacer"></span>
+          <button class="btn sun" type="button" id="btn-preview-text">Periksa &amp; Pratinjau</button>
+          <button class="btn go" type="button" id="btn-save-text">Langsung Simpan</button>
+        </div>
+      </div>
+    </div>
+
     <details class="panel format">
-      <summary>Lihat contoh format</summary>
+      <summary>Lihat panduan format Markdown</summary>
       <pre><code>${esc(MD_EXAMPLE)}</code></pre>
       <ul class="muted">
-        <li>Front matter di antara dua baris <code>---</code>. <code>judul</code> wajib; kunci angka opsional.</li>
+        <li>Front matter di antara dua baris <code>---</code>. <code>judul</code> wajib; kunci angka opsional (<code>poin_benar</code>, <code>penalti_salah</code>, <code>batas_waktu</code>).</li>
         <li>Baris kata: <code>- JAWABAN: petunjuk</code> atau <code>* JAWABAN: petunjuk</code>.</li>
         <li>Baris kosong dan baris diawali <code>#</code> diabaikan.</li>
       </ul>
     </details>
     <p class="error" id="err" role="alert" hidden></p>
     <div id="results"></div>`;
+
   const err = document.getElementById("err");
+  const tabFile = document.getElementById("tab-file");
+  const tabText = document.getElementById("tab-text");
+  const panelFile = document.getElementById("panel-file");
+  const panelText = document.getElementById("panel-text");
   const drop = document.getElementById("drop");
   const input = document.getElementById("files");
+  const fileAutoSave = document.getElementById("file-auto-save");
+  const filePub = document.getElementById("file-pub");
+  const pasteArea = document.getElementById("paste-text");
+  const btnSample = document.getElementById("btn-sample");
+  const btnClear = document.getElementById("btn-clear");
+  const btnPreviewText = document.getElementById("btn-preview-text");
+  const btnSaveText = document.getElementById("btn-save-text");
+  const textPub = document.getElementById("text-pub");
   const resultsEl = document.getElementById("results");
 
-  async function handle(fileList) {
+  function setMode(mode) {
+    currentMode = mode;
+    tabFile.classList.toggle("on", mode === "file");
+    tabFile.setAttribute("aria-selected", String(mode === "file"));
+    tabText.classList.toggle("on", mode === "text");
+    tabText.setAttribute("aria-selected", String(mode === "text"));
+    panelFile.classList.toggle("hidden", mode !== "file");
+    panelText.classList.toggle("hidden", mode !== "text");
     setError(err, "");
-    const files = [...fileList].filter((f) => f.name.toLowerCase().endsWith(".md"));
-    if (files.length === 0) return setError(err, "Pilih file berakhiran .md.");
-    if (files.length > 20) return setError(err, `Maksimal 20 file sekali impor (kamu memilih ${files.length}).`);
-    const big = files.filter((f) => f.size > 64 * 1024);
-    if (big.length) return setError(err, `File terlalu besar (maks. 64 KB): ${big.map((f) => f.name).join(", ")}`);
-    resultsEl.innerHTML = `<p class="muted">Membaca ${files.length} file…</p>`;
+    if (mode === "text") {
+      pasteArea.focus();
+    }
+  }
+
+  tabFile.onclick = () => setMode("file");
+  tabText.onclick = () => setMode("text");
+
+  btnSample.onclick = () => {
+    pasteArea.value = MD_EXAMPLE;
+    pasteArea.focus();
+    toast("Contoh format Markdown dimuat");
+  };
+
+  btnClear.onclick = () => {
+    pasteArea.value = "";
+    pasteArea.focus();
+  };
+
+  async function processPayload(payload, { autoSave = false, published = false } = {}) {
+    setError(err, "");
+    resultsEl.innerHTML = `<p class="muted">Memproses ${payload.length} kuis…</p>`;
     try {
-      const payload = await Promise.all(files.map(async (f) => ({ name: f.name, content: await f.text() })));
       const res = await api("/api/admin/import", { method: "POST", body: { files: payload } });
       // Go may encode empty slices as null; normalize once here.
       results = res.results.map((r) => ({
@@ -919,7 +1108,35 @@ function importView() {
         saved: null,
         saveError: "",
       }));
-      render();
+
+      if (autoSave) {
+        let savedCount = 0;
+        for (const r of results) {
+          if (!r.ok || r.saved) continue;
+          const q = r.quiz;
+          try {
+            const { id } = await api("/api/admin/quizzes", {
+              method: "POST",
+              body: quizBody({ ...q, published, words: q.layout.words }),
+            });
+            r.saved = { id };
+            r.saveError = "";
+            savedCount++;
+          } catch (ex) {
+            r.saveError = ex.message;
+          }
+        }
+        render(published);
+        if (savedCount > 0) {
+          Sound.play("ev-win");
+          toast(`✓ ${savedCount} kuis berhasil diimpor & disimpan!`);
+        } else if (results.some((r) => !r.ok)) {
+          toast("Format kuis belum valid. Periksa baris kesalahan.");
+        }
+        return;
+      }
+
+      render(published);
       if (results.some((r) => r.ok)) Sound.play("ev-build");
     } catch (e) {
       resultsEl.innerHTML = "";
@@ -927,7 +1144,80 @@ function importView() {
     }
   }
 
-  function render() {
+  function parseTextareaPayload() {
+    setError(err, "");
+    const raw = pasteArea.value.trim();
+    if (!raw) {
+      setError(err, "Tempel teks markdown kuis terlebih dahulu.");
+      pasteArea.focus();
+      return null;
+    }
+    const chunks = splitQuizzesText(raw);
+    if (chunks.length === 0) {
+      setError(err, "Teks tidak berisi format kuis yang valid.");
+      return null;
+    }
+    if (chunks.length > 20) {
+      setError(err, `Maksimal 20 kuis sekali impor (ditemukan ${chunks.length} kuis).`);
+      return null;
+    }
+    for (let i = 0; i < chunks.length; i++) {
+      if (new Blob([chunks[i]]).size > 64 * 1024) {
+        setError(err, `Kuis #${i + 1} terlalu besar (maks. 64 KB).`);
+        return null;
+      }
+    }
+    return chunks.map((chunk, idx) => ({
+      name: getTitleFromMarkdown(chunk, idx + 1),
+      content: chunk,
+    }));
+  }
+
+  btnPreviewText.onclick = async () => {
+    const payload = parseTextareaPayload();
+    if (!payload) return;
+    btnPreviewText.disabled = true;
+    try {
+      await processPayload(payload, { autoSave: false, published: textPub.checked });
+      resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    } finally {
+      btnPreviewText.disabled = false;
+    }
+  };
+
+  btnSaveText.onclick = async () => {
+    const payload = parseTextareaPayload();
+    if (!payload) return;
+    btnSaveText.disabled = true;
+    try {
+      await processPayload(payload, { autoSave: true, published: textPub.checked });
+      resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    } finally {
+      btnSaveText.disabled = false;
+    }
+  };
+
+  async function handleFiles(fileList) {
+    setError(err, "");
+    const files = [...fileList].filter((f) => f.name.toLowerCase().endsWith(".md"));
+    if (files.length === 0) return setError(err, "Pilih file berakhiran .md.");
+    if (files.length > 20) return setError(err, `Maksimal 20 file sekali impor (kamu memilih ${files.length}).`);
+    const big = files.filter((f) => f.size > 64 * 1024);
+    if (big.length) return setError(err, `File terlalu besar (maks. 64 KB): ${big.map((f) => f.name).join(", ")}`);
+    resultsEl.innerHTML = `<p class="muted">Membaca ${files.length} file…</p>`;
+    try {
+      const payload = await Promise.all(files.map(async (f) => ({ name: f.name, content: await f.text() })));
+      await processPayload(payload, {
+        autoSave: fileAutoSave?.checked ?? false,
+        published: filePub?.checked ?? false,
+      });
+    } catch (e) {
+      resultsEl.innerHTML = "";
+      setError(err, e.message);
+    }
+  }
+
+  function render(initialPublished = false) {
     const selectable = results.filter((r) => r.ok && !r.saved);
     const count = selectable.filter((r) => r.selected).length;
     resultsEl.innerHTML = `
@@ -943,7 +1233,7 @@ function importView() {
             <span class="spacer"></span>
             ${r.saved
               ? `<span class="chip mint">Tersimpan</span><a class="btn small" href="#/admin/edit/${r.saved.id}">Buka di editor</a>`
-              : r.ok ? `<span class="chip mint">Siap disimpan</span>` : `<span class="chip tomato">${r.errors.length} kesalahan</span>`}
+              : r.ok ? `<button class="btn small go" type="button" data-save-one="${i}">Simpan kuis ini</button>` : `<span class="chip tomato">${r.errors.length} kesalahan</span>`}
           </header>
           ${r.errors.length ? `<ul class="err-list">${r.errors.map((e) => `<li>${e.line > 0 ? `<b>Baris ${e.line}:</b> ` : ""}${esc(e.message)}</li>`).join("")}</ul>` : ""}
           ${q ? `
@@ -957,9 +1247,9 @@ function importView() {
       }).join("")}</div>
       ${selectable.length ? `
       <div class="panel save-bar row">
-        <label class="check"><input type="checkbox" id="pub"> Terbitkan langsung untuk mode solo</label>
+        <label class="check"><input type="checkbox" id="pub"${initialPublished ? " checked" : ""}> Terbitkan langsung untuk mode solo</label>
         <span class="spacer"></span>
-        <button class="btn go" type="button" id="save-all" ${count ? "" : "disabled"}>Simpan ${count} kuis</button>
+        <button class="btn go" type="button" id="save-all" ${count ? "" : "disabled"}>Simpan ${count} kuis terpilih</button>
       </div>` : ""}`;
   }
 
@@ -969,36 +1259,67 @@ function importView() {
     results[i].selected = e.target.checked;
     const count = results.filter((r) => r.ok && !r.saved && r.selected).length;
     const btn = document.getElementById("save-all");
-    btn.textContent = `Simpan ${count} kuis`;
-    btn.disabled = count === 0;
+    if (btn) {
+      btn.textContent = `Simpan ${count} kuis terpilih`;
+      btn.disabled = count === 0;
+    }
   });
+
   resultsEl.addEventListener("click", async (e) => {
-    if (e.target.id !== "save-all") return;
-    const published = document.getElementById("pub").checked;
-    e.target.disabled = true;
-    let saved = 0;
-    for (const r of results.filter((x) => x.ok && !x.saved && x.selected)) {
-      const q = r.quiz;
+    const saveOneBtn = e.target.closest("[data-save-one]");
+    if (saveOneBtn) {
+      const idx = Number(saveOneBtn.dataset.saveOne);
+      const r = results[idx];
+      if (!r || !r.ok || r.saved) return;
+      const pubBox = document.getElementById("pub");
+      const published = pubBox ? pubBox.checked : (currentMode === "text" ? textPub.checked : filePub.checked);
+      saveOneBtn.disabled = true;
       try {
         const { id } = await api("/api/admin/quizzes", {
           method: "POST",
-          body: quizBody({ ...q, published, words: q.layout.words }),
+          body: quizBody({ ...r.quiz, published, words: r.quiz.layout.words }),
         });
         r.saved = { id };
         r.saveError = "";
-        saved++;
+        render(published);
+        Sound.play("ev-win");
+        toast(`✓ Kuis “${r.quiz.title}” berhasil disimpan!`);
       } catch (ex) {
         r.saveError = ex.message;
+        render(published);
+      }
+      return;
+    }
+
+    if (e.target.id === "save-all") {
+      const pubBox = document.getElementById("pub");
+      const published = pubBox ? pubBox.checked : false;
+      e.target.disabled = true;
+      let saved = 0;
+      for (const r of results.filter((x) => x.ok && !x.saved && x.selected)) {
+        const q = r.quiz;
+        try {
+          const { id } = await api("/api/admin/quizzes", {
+            method: "POST",
+            body: quizBody({ ...q, published, words: q.layout.words }),
+          });
+          r.saved = { id };
+          r.saveError = "";
+          saved++;
+        } catch (ex) {
+          r.saveError = ex.message;
+        }
+      }
+      render(published);
+      if (saved > 0) {
+        Sound.play("ev-win");
+        toast(`✓ ${saved} kuis berhasil disimpan!`);
       }
     }
-    render();
-    const pub = document.getElementById("pub");
-    if (pub) pub.checked = published;
-    toast(`${saved} kuis disimpan`);
   });
 
   input.onchange = () => {
-    handle(input.files);
+    handleFiles(input.files);
     input.value = "";
   };
   drop.addEventListener("dragover", (e) => {
@@ -1009,7 +1330,7 @@ function importView() {
   drop.addEventListener("drop", (e) => {
     e.preventDefault();
     drop.classList.remove("over");
-    handle(e.dataTransfer.files);
+    handleFiles(e.dataTransfer.files);
   });
 }
 

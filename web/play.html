@@ -21,10 +21,23 @@
     <span class="title" id="title">Main Live</span>
     <span class="spacer"></span>
     <span class="chip sun hidden" id="scoreChip"></span>
+    <button type="button" class="mic-status-btn" id="micBtn" title="Izin suara & mikrofon" aria-label="Izin suara & mikrofon">🎙️</button>
     <button type="button" class="sound-mute" id="muteBtn" data-sound-mute></button>
   </header>
   <main id="app"><p class="muted">Memuat…</p></main>
   <button type="button" class="btn sun tap hidden" id="tap">🔊 Ketuk untuk mengaktifkan suara</button>
   <div id="toast" role="status"></div>
+  <div id="voiceModal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="permTitle">
+    <div class="panel perm-box" id="permBox">
+      <div class="perm-icon">🎙️</div>
+      <h2 id="permTitle">Izin Suara & Mikrofon</h2>
+      <p>TTS Kuis dilengkapi fitur <b>Voice-to-Text</b> agar kamu bisa menjawab teka-teki cukup dengan berbicara!</p>
+      <p class="sub">Aktifkan izin mikrofon sekarang agar saat bel ditekan, kamu bisa langsung bicara tanpa terhambat popup browser.</p>
+      <div class="perm-actions">
+        <button type="button" class="btn go big" id="allowMicBtn">🎙️ Izinkan Mikrofon</button>
+        <button type="button" class="btn" id="skipMicBtn">Nanti Saja</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

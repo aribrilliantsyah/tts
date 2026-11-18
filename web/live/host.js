@@ -9,6 +9,7 @@ const DIR = { across: "Mendatar", down: "Menurun" };
 const REACT_EMOJI = { wave: "👋", tawa: "😂", api: "🔥", pesta: "🎉", degdegan: "😬" };
 const CODE_TILT = [-6, 4, -3, 5, -4, 3]; // degrees, like the TTS logo
 const TILE_TILT = [-2, 1.5, -1, 2, -1.5, 1];
+const secretAnswers = new Map(); // clue id -> secret answer from host_answers
 
 let sock = null;
 let st = null; // latest RoomState
@@ -43,6 +44,8 @@ boot();
 async function boot() {
   if (!/^\d{6}$/.test(code)) return message("Kode room tidak valid", "Buka layar utama dari halaman admin (tombol “Mulai live”).", true);
   $("#codeChip").textContent = code;
+  const tvBtn = $("#openTvBtn");
+  if (tvBtn) tvBtn.href = `/tv.html#${code}`;
   let me;
   try {
     me = (await api("/api/me")).user;
@@ -112,6 +115,13 @@ function onMessage(msg) {
       render();
       break;
     }
+    case "host_answers": {
+      for (const [id, ans] of Object.entries(msg.answers || {})) {
+        secretAnswers.set(id, ans);
+      }
+      if (phase === "playing") renderPlaying();
+      break;
+    }
     case "buzz": {
       Sound.play(msg.bell);
       flash.set(msg.player_id, Date.now() + 900);
@@ -141,7 +151,15 @@ function onResult(msg) {
   if (msg.correct) {
     cellsOf(clue).forEach((k, i) => anim.set(k, { cls: "win", i, until }));
   } else {
-    cellsOf(clue).forEach((k) => anim.set(k, { cls: "bad", i: 0, until }));
+    const p = player(msg.player_id);
+    const name = p?.nickname ?? "Pemain";
+    const guessTxt = msg.guess ? `"${msg.guess}"` : "(waktu habis)";
+    outcome = { text: `${name} menebak ${guessTxt} · Salah!`, bad: true, until: Date.now() + 4000 };
+    if (msg.guess) {
+      cellsOf(clue).forEach((k, i) => anim.set(k, { cls: "bad", i, letter: msg.guess[i] || "", until }));
+    } else {
+      cellsOf(clue).forEach((k) => anim.set(k, { cls: "bad", i: 0, until }));
+    }
     shakeUntil = until;
   }
   if (st) render();
@@ -274,6 +292,9 @@ function skeletonLobby() {
         <img class="qr" src="/api/live/rooms/${encodeURIComponent(code)}/qr.png" alt="QR untuk bergabung" width="260" height="260">
         <p class="muted">Pindai QR atau buka:</p>
         <p class="join-url">${(() => { const i = joinUrl.indexOf("/play.html"); return i < 0 ? esc(joinUrl) : `<span class="host">${esc(joinUrl.slice(0, i))}</span><wbr><span class="path">${esc(joinUrl.slice(i))}</span>`; })()}</p>
+        <div class="row" style="justify-content:center; margin-top:1rem;">
+          <a class="btn sun open-tv-btn" target="_blank" href="/tv.html#${encodeURIComponent(code)}">📺 Buka Layar TV (Proyektor)</a>
+        </div>
       </section>
       <div class="lobby-main">
         <section class="panel">
@@ -451,7 +472,9 @@ function sizeBoard() {
   const panel = board.closest(".panel");
   const ps = getComputedStyle(panel);
   const boxW = panel.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
-  setBoardCell(board, fitCell(board, boxW, window.innerHeight * 0.62, width, height, 24, 76));
+  const rect = panel.getBoundingClientRect();
+  const boxH = Math.max(300, window.innerHeight - rect.top - parseFloat(ps.paddingBottom) - 24);
+  setBoardCell(board, fitCell(board, boxW, boxH, width, height, 24, 88));
   snapBoard(board);
 }
 window.addEventListener("resize", sizeBoard);
@@ -461,6 +484,10 @@ function renderPlaying() {
   const active = st.active;
   const activeClue = active && q.clues.find((c) => c.id === active.clue_id);
   if (activeClue) selected = activeClue.id;
+  else if (selected) {
+    const s = q.clues.find((c) => c.id === selected);
+    if (!s || !pickable(s)) selected = null;
+  }
   const selClue = q.clues.find((c) => c.id === selected);
 
   // outcome banner (only when it changes after the first snapshot)
@@ -496,7 +523,7 @@ function renderPlaying() {
     if (live) cls += ` ${live.cls}`;
     if (el.className !== cls) el.className = cls;
     if (live) el.style.setProperty("--i", live.i);
-    const letter = st.letters[k] || "";
+    const letter = (live && live.letter !== undefined) ? live.letter : (st.letters[k] || "");
     const l = el.querySelector(".l");
     if (l.textContent !== letter) l.textContent = letter;
   }
@@ -513,22 +540,38 @@ function renderPlaying() {
     } else {
       stateHtml = `<span class="pulse">🔔 Menunggu bel…</span>`;
     }
+    const attemptsMap = new Map((active.attempts || []).map((a) => [a.player_id, a.guess]));
     const locked = active.locked_out.length
       ? `<div class="locked"><span class="muted">Sudah dapat giliran:</span>${active.locked_out.map((id) => {
           const p = player(id);
-          return `<span class="row" style="gap:.3rem">${avatarImg(p?.avatar, 28, p?.nickname)}${esc(p?.nickname ?? "?")}</span>`;
+          const g = attemptsMap.get(id);
+          const gHtml = g !== undefined
+            ? (g ? `<span class="chip wrong-guess"><s>${esc(g)}</s></span>` : `<span class="chip wrong-guess muted">waktu habis</span>`)
+            : "";
+          return `<span class="row attempt-chip" style="gap:.3rem">${avatarImg(p?.avatar, 28, p?.nickname)}<span>${esc(p?.nickname ?? "?")}</span>${gHtml}</span>`;
         }).join("")}</div>`
       : "";
+    const sec = secretAnswers.get(activeClue.id);
+    const cheat = sec ? `<span class="chip cheat-sheet" title="Kunci jawaban host">${esc(sec)}</span>` : "";
     body = `
-      <p class="eyebrow">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf</p>
+      <p class="eyebrow">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf ${cheat}</p>
       <div class="clue-big">${esc(activeClue.clue)}</div>
       <div class="astate">${stateHtml}</div>
       ${locked}`;
+  } else if (selClue && pickable(selClue)) {
+    const sec = secretAnswers.get(selClue.id);
+    const cheat = sec ? `<span class="chip cheat-sheet" title="Kunci jawaban host">${esc(sec)}</span>` : "";
+    body = `
+      <p class="eyebrow">${selClue.number} ${DIR[selClue.direction]} · ${selClue.length} huruf ${cheat} <span class="chip sun">Siap Dibuka</span></p>
+      <div class="clue-big">${esc(selClue.clue)}</div>
+      <div class="astate">
+        <button type="button" class="btn go big" data-open="${esc(selClue.id)}">🔔 Buka Bel untuk Pemain</button>
+        <span class="muted" style="font-size:.95rem">atau klik sekali lagi pada soal</span>
+      </div>`;
   } else {
     body = `
       <p class="eyebrow">Belum ada soal aktif</p>
-      <div class="clue-big">Pilih soal dari daftar atau klik kotak di papan.</div>
-      ${selClue && pickable(selClue) ? `<p class="muted">Terpilih: ${selClue.number} ${DIR[selClue.direction]}</p>` : ""}`;
+      <div class="clue-big">Pilih soal dari daftar atau klik kotak di papan.</div>`;
   }
   const revealTarget = activeClue || (selClue && pickable(selClue) ? selClue : null);
   ap.innerHTML = `${body}
@@ -556,8 +599,13 @@ function renderPlaying() {
       extra = `${p ? avatarImg(p.avatar, 26, p.nickname) : ""}<span class="chip mint">${esc(c.answer ?? "")}</span>`;
     } else if (c.status === "revealed") extra = `<span class="chip">dibuka${c.answer ? `: ${esc(c.answer)}` : ""}</span>`;
     else if (c.status === "skipped") extra = `<span class="chip sun">dilewati</span>`;
-    const cls = [c.status, c.id === active?.clue_id ? "act" : c.id === selected && pickable(c) ? "sel" : "", canPick && pickable(c) ? "pick" : ""].join(" ");
-    return `<li class="${cls}" data-clue="${esc(c.id)}"><span class="n">${c.number}</span><span class="ct">${esc(c.clue)} <span class="muted">(${c.length})</span></span>${extra}</li>`;
+    const sec = secretAnswers.get(c.id);
+    const cheat = (sec && c.status !== "solved" && c.status !== "revealed") ? `<span class="chip cheat-sheet" title="Kunci jawaban host">${esc(sec)}</span>` : "";
+    const isSel = c.id === selected && pickable(c) && !activeClue;
+    const isAct = c.id === active?.clue_id;
+    const cls = [c.status, isAct ? "act" : isSel ? "sel" : "", canPick && pickable(c) ? "pick" : ""].join(" ");
+    const badge = isSel ? `<span class="chip sun" style="font-size:.8rem; margin-left:.3rem;">terpilih</span>` : "";
+    return `<li class="${cls}" data-clue="${esc(c.id)}"><span class="n">${c.number}</span><span class="ct">${esc(c.clue)} <span class="muted">(${c.length})</span></span>${cheat}${badge}${extra}</li>`;
   }).join("");
   $("#clues").innerHTML = `<h2>Mendatar</h2><ul class="clue-list">${list("across")}</ul><h2>Menurun</h2><ul class="clue-list">${list("down")}</ul>`;
 }
@@ -570,9 +618,14 @@ function outcomeText(lo) {
 }
 
 function openClue(id) {
-  selected = id;
-  if (st.active) { renderPlaying(); return; }
-  sock.send({ type: "open_clue", clue_id: id });
+  if (st.active) return;
+  if (selected === id) {
+    sock.send({ type: "open_clue", clue_id: id });
+    selected = null;
+  } else {
+    selected = id;
+    renderPlaying();
+  }
 }
 
 app.addEventListener("click", (e) => {
@@ -584,12 +637,24 @@ app.addEventListener("click", (e) => {
     return;
   }
   if (phase !== "playing") return;
+  const openBtn = e.target.closest("[data-open]");
+  if (openBtn) {
+    const id = openBtn.dataset.open;
+    if (id) {
+      sock.send({ type: "open_clue", clue_id: id });
+      selected = null;
+    }
+    return;
+  }
   const act = e.target.closest("[data-act]");
   if (act) {
     if (act.dataset.act === "skip") sock.send({ type: "skip" });
     else if (act.dataset.act === "reveal") {
       const id = st.active?.clue_id || selected;
-      if (id) sock.send({ type: "reveal", clue_id: id });
+      if (id) {
+        sock.send({ type: "reveal", clue_id: id });
+        selected = null;
+      }
     } else if (act.dataset.act === "end") {
       if (confirm("Akhiri permainan sekarang? Semua jawaban yang belum terjawab akan dibuka.")) sock.send({ type: "end" });
     }

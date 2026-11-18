@@ -121,12 +121,18 @@ type StatePlayer struct {
 	IsGuest   bool            `json:"is_guest"`
 }
 
+type Attempt struct {
+	PlayerID string `json:"player_id"`
+	Guess    string `json:"guess"`
+}
+
 type StateActive struct {
-	ClueID          string   `json:"clue_id"`
-	State           string   `json:"state"`
-	AnsweringPlayer *string  `json:"answering_player"`
-	Deadline        *int64   `json:"deadline"`
-	LockedOut       []string `json:"locked_out"`
+	ClueID          string    `json:"clue_id"`
+	State           string    `json:"state"`
+	AnsweringPlayer *string   `json:"answering_player"`
+	Deadline        *int64    `json:"deadline"`
+	LockedOut       []string  `json:"locked_out"`
+	Attempts        []Attempt `json:"attempts"`
 }
 
 // Outcome kinds.
@@ -137,10 +143,11 @@ const (
 )
 
 type Outcome struct {
-	ClueID   string  `json:"clue_id"`
-	Kind     string  `json:"kind"`
-	PlayerID *string `json:"player_id"`
-	Answer   *string `json:"answer"`
+	ClueID   string    `json:"clue_id"`
+	Kind     string    `json:"kind"`
+	PlayerID *string   `json:"player_id"`
+	Answer   *string   `json:"answer"`
+	Attempts []Attempt `json:"attempts,omitempty"`
 }
 
 type PodiumEntry struct {
@@ -207,6 +214,7 @@ type resultMsg struct {
 	Correct  bool   `json:"correct"`
 	ClueID   string `json:"clue_id"`
 	Delta    int    `json:"delta"`
+	Guess    string `json:"guess,omitempty"`
 }
 
 type reactMsg struct {
@@ -214,3 +222,9 @@ type reactMsg struct {
 	PlayerID string `json:"player_id"`
 	Kind     string `json:"kind"`
 }
+
+type hostAnswersMsg struct {
+	Type    string            `json:"type"`
+	Answers map[string]string `json:"answers"`
+}
+

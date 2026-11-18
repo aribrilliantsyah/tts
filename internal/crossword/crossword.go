@@ -278,6 +278,42 @@ func crop(placed []PlacedWord, unplaced []WordInput) Layout {
 	return l
 }
 
+// Transpose swaps rows and columns, turning across words into down and vice versa.
+// Letter crossings and word lengths are mathematically preserved.
+func Transpose(words []PlacedWord) []PlacedWord {
+	out := make([]PlacedWord, len(words))
+	for i, w := range words {
+		dir := Across
+		if w.Direction == Across {
+			dir = Down
+		}
+		out[i] = PlacedWord{
+			Answer:    w.Answer,
+			Clue:      w.Clue,
+			Row:       w.Col,
+			Col:       w.Row,
+			Direction: dir,
+		}
+	}
+	return out
+}
+
+// EnsureLandscape transposes the words if the grid is portrait (height > width),
+// returning a layout optimized for widescreen displays (width >= height).
+func EnsureLandscape(words []PlacedWord) []PlacedWord {
+	if len(words) == 0 {
+		return words
+	}
+	g, err := Build(words)
+	if err != nil {
+		return words
+	}
+	if g.Height > g.Width {
+		return Transpose(words)
+	}
+	return words
+}
+
 // Generate lays out inputs into a connected crossword, keeping the best of many
 // randomized attempts (most words placed, then smallest area). Inputs with an
 // answer shorter than MinAnswer or an empty clue are dropped. rng may be nil.
@@ -311,6 +347,10 @@ func Generate(inputs []WordInput, rng *rand.Rand) Layout {
 		if len(best.Unplaced) == 0 && t >= 30 {
 			break
 		}
+	}
+	if best.Height > best.Width {
+		best.Words = Transpose(best.Words)
+		best.Width, best.Height = best.Height, best.Width
 	}
 	return best
 }

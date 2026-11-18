@@ -330,6 +330,9 @@ func TestWrongLockoutReopen(t *testing.T) {
 	if st.Active == nil || st.Active.State != "waiting" || !slices.Equal(st.Active.LockedOut, []string{ps[0].you.PlayerID}) {
 		t.Fatalf("active %+v", st.Active)
 	}
+	if len(st.Active.Attempts) != 1 || st.Active.Attempts[0].Guess != "KUDU" || st.Active.Attempts[0].PlayerID != ps[0].you.PlayerID {
+		t.Fatalf("attempts %+v", st.Active.Attempts)
+	}
 	if p := findPlayer(st, ps[0].you.PlayerID); p.Score != -5 || p.Wrong != 1 {
 		t.Fatalf("player %+v", p)
 	}
@@ -845,3 +848,50 @@ func TestReactHostCannotSend(t *testing.T) {
 		t.Fatalf("host react relayed: %v", got)
 	}
 }
+
+func TestTVAndHostRole(t *testing.T) {
+	e := newEnv(t)
+
+	// 1. TV joins without admin session -> succeeds and receives state
+	tv := NewClient()
+	e.room.Join(tv, Hello{Type: "hello", Role: "tv"}, nil)
+	tvFrames := e.drain(tv)
+	if len(tvFrames) == 0 || tvFrames[0].typ() != "state" {
+		t.Fatalf("expected state message for TV, got %v", tvFrames)
+	}
+
+	// Unsolved clues in TV state must NOT have answers
+	var st RoomState
+	json.Unmarshal(tvFrames[0]["state"], &st)
+	for _, c := range st.Quiz.Clues {
+		if c.Answer != nil {
+			t.Fatalf("clue %s has leaked answer: %v", c.ID, *c.Answer)
+		}
+	}
+
+	// 2. TV sending host action -> rejected
+	e.room.Message(tv, Msg{Type: "start"})
+	errs := e.errors(tv)
+	if len(errs) == 0 {
+		t.Fatalf("expected error message when TV sends host action, got none")
+	}
+
+	// 3. Host joins with admin -> receives state and host_answers
+	hostClient := NewClient()
+	e.room.Join(hostClient, Hello{Type: "hello", Role: "host"}, &store.User{ID: 1, Username: "admin", Role: store.RoleAdmin})
+	hostFrames := e.drain(hostClient)
+
+	var gotAnswers map[string]string
+	for _, f := range hostFrames {
+		if f.typ() == "host_answers" {
+			json.Unmarshal(f["answers"], &gotAnswers)
+		}
+	}
+	if len(gotAnswers) == 0 {
+		t.Fatalf("expected host_answers message for host client, got frames: %v", hostFrames)
+	}
+	if gotAnswers["1-across"] != "KUDA" || gotAnswers["1-down"] != "KAKI" || gotAnswers["2-down"] != "ADA" {
+		t.Fatalf("unexpected host answers: %v", gotAnswers)
+	}
+}
+

@@ -62,8 +62,8 @@ func (s *Server) roomInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // joinURL is the player join link encoded in the room QR code.
-func (s *Server) joinURL(code string) string {
-	return s.urls()[0] + "/play.html#/join/" + code
+func (s *Server) joinURL(code string, scheme string) string {
+	return s.urls(scheme)[0] + "/play.html#/join/" + code
 }
 
 func (s *Server) roomQR(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,11 @@ func (s *Server) roomQR(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		return
 	}
-	png, err := qrcode.Encode(s.joinURL(room.Code()), qrcode.Medium, 512)
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	png, err := qrcode.Encode(s.joinURL(room.Code(), scheme), qrcode.Medium, 512)
 	if err != nil {
 		serverError(w, r, err)
 		return

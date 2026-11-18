@@ -38,9 +38,16 @@ INFO listening url=http://192.168.1.47:3000
 ```
 
 1. Buka alamat itu di laptop operator, masuk sebagai `admin`.
-2. Pilih kuis, klik **Mulai live**. Tab layar utama terbuka. Klik **Aktifkan suara**, lalu sambungkan ke proyektor.
-3. Peserta pindai QR di layar (atau buka `/play.html` dan ketik kode 6 angka).
-4. Klik **Mulai permainan**, lalu klik petunjuk mana saja di papan.
+2. Pilih kuis, klik **Mulai live**. Tab **Kontrol Host** (`/host.html`) akan terbuka.
+3. Di Kontrol Host, klik tombol **📺 Buka TV** untuk membuka **Layar TV / Proyektor** (`/tv.html`) di tab/jendela baru yang diarahkan ke layar TV/proyektor.
+4. Di Layar TV, klik **Aktifkan suara** agar musik dan bel berbunyi di ruangan.
+5. Peserta pindai QR di TV (atau buka `/play.html` dari HP masing-masing).
+6. Host memandu permainan dari Kontrol Host (lengkap dengan contekan kunci jawaban) lalu klik petunjuk mana saja untuk membuka bel ke peserta.
+
+### Tiga Layar Mandiri
+- **Layar TV (`/tv.html`)**: Khusus diproyeksikan ke TV/layar besar. Bersih tanpa tombol kontrol, memuat papan TTS besar, status bel, hitung mundur, podium, dan musik latar.
+- **Kontrol Host (`/host.html`)**: Panel pengendali untuk MC/operator (dapat diakses dari laptop atau HP admin), dilengkapi kunci jawaban tersembunyi untuk memandu kuis dengan seru.
+- **Layar Peserta (`/play.html`)**: Tampilan HP pemain untuk memencet bel, mengetik jawaban, dan melihat status pemain lain yang sedang menjawab.
 
 > Kalau HP peserta tidak bisa membuka alamatnya, biasanya firewall laptop memblokir port. Buka port `PORT` (default `3000`) untuk jaringan lokal.
 

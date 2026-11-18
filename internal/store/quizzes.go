@@ -246,3 +246,53 @@ func shape(words []crossword.PlacedWord) [][2]int {
 	slices.SortFunc(out, func(a, b [2]int) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) })
 	return out
 }
+
+// MigrateLandscape transposes any stored quizzes where height > width so that all
+// quizzes are oriented landscape (width >= height) for widescreen displays.
+func (s *Store) MigrateLandscape(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, words FROM quizzes WHERE height > width`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type quizItem struct {
+		id    int64
+		words []crossword.PlacedWord
+	}
+	var items []quizItem
+	for rows.Next() {
+		var (
+			id    int64
+			raw   string
+			words []crossword.PlacedWord
+		)
+		if err := rows.Scan(&id, &raw); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(raw), &words); err != nil {
+			continue
+		}
+		items = append(items, quizItem{id: id, words: words})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, it := range items {
+		transposed := crossword.EnsureLandscape(it.words)
+		g, err := crossword.Build(transposed)
+		if err != nil {
+			continue
+		}
+		data, err := json.Marshal(transposed)
+		if err != nil {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE quizzes SET width = ?, height = ?, words = ? WHERE id = ?`, g.Width, g.Height, string(data), it.id); err != nil {
+			return err
+		}
+		s.db.ExecContext(ctx, `DELETE FROM attempts WHERE quiz_id = ?`, it.id)
+	}
+	return nil
+}
